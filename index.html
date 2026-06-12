@@ -195,8 +195,10 @@ window.FIREBASE_CONFIG={apiKey: "AIzaSyBjixmsGkOE5Eh7c2L-jDv9Mms2ObvHHwM",
           <button class="btn" id="nextM">▶</button>
           <button class="btn" id="goToday">오늘</button>
           <button class="btn" id="stockViewBtn">📊 예상 재고</button>
+          <button class="btn" id="rangeBtn">📅 기간 생산</button>
         </div>
         <div id="stockView"></div>
+        <div id="rangeView"></div>
         <div class="cal" id="cal"></div>
         <p class="hint" id="calNotice" style="color:var(--red);font-weight:700"></p>
         <p class="hint">날짜 클릭 → 오른쪽에서 생산 수량 입력·휴무 지정. 초록=오늘까지 생산분, 파랑=직접 입력한 예정, <span style="color:var(--blue)">파란 점선=생산 발주에 따른 자동 예정</span>, 주황=자재 입고.</p>
@@ -395,13 +397,7 @@ window.FIREBASE_CONFIG={apiKey: "AIzaSyBjixmsGkOE5Eh7c2L-jDv9Mms2ObvHHwM",
       window.FIREBASE_CONFIG = { ... } 의 중괄호 부분만 교체 (script 태그는 복사 금지!)
    6) 배포 후 Authentication → Settings → 승인된 도메인에 배포 주소 추가 (예: xxx.vercel.app)
    ※ 교체 전에는 로그인 없이 '이 기기에만 저장'되는 로컬 모드로 동작합니다. */
-const firebaseConfig=window.FIREBASE_CONFIG||{apiKey: "AIzaSyBjixmsGkOE5Eh7c2L-jDv9Mms2ObvHHwM",
-  authDomain: "production-calendar-program.firebaseapp.com",
-  projectId: "production-calendar-program",
-  storageBucket: "production-calendar-program.firebasestorage.app",
-  messagingSenderId: "489945378189",
-  appId: "1:489945378189:web:8d019c4cf8cacc179221c4",
-  measurementId: "G-PHJK1H75GZ"};
+const firebaseConfig=window.FIREBASE_CONFIG||{apiKey:"PASTE_YOUR_CONFIG_HERE"};
 const ALLOWED_DOMAIN='lowlit.co';
 const FB_ON=typeof firebase!=='undefined'&&firebaseConfig.apiKey&&firebaseConfig.apiKey!=='PASTE_YOUR_CONFIG_HERE';
 
@@ -544,6 +540,8 @@ let selDate=today;
 let openRecipe=null; // 'pid|cid' 배합 편집 열림 상태
 let openTest=null;   // 테스트 요청서 편집 열림 상태
 let showStockView=false; // 예상 재고 패널 표시
+let showRange=false;     // 기간 생산 조회 패널
+let rangeFrom='',rangeTo='';
 
 const prodOf=id=>S.products.find(p=>p.id===id);
 const colorOf=(p,cid)=>p&&p.colors.find(c=>c.id===cid);
@@ -657,8 +655,28 @@ function poData(){
 }
 
 /* ===== render ===== */
-function render(){renderStats();renderCal();renderStockView();renderPanel();renderOrders();renderPO();renderTests();renderProds();renderFlakes();renderHistory();renderSettings();save()}
+function render(){renderStats();renderCal();renderStockView();renderRangeView();renderPanel();renderOrders();renderPO();renderTests();renderProds();renderFlakes();renderHistory();renderSettings();save()}
 
+function renderRangeView(){
+  const el=$('#rangeView');if(!el)return;
+  if(!showRange){el.innerHTML='';return}
+  if(!rangeFrom){const d=new Date();rangeFrom=fmt(new Date(d.getFullYear(),d.getMonth(),1));rangeTo=today}
+  const recs=S.records.filter(r=>r.date>=rangeFrom&&r.date<=rangeTo);
+  const byColor=new Map();
+  recs.forEach(r=>{const k=r.pid+'|'+r.cid;byColor.set(k,(byColor.get(k)||0)+r.qty)});
+  const rows=[...byColor.entries()].map(([k,q])=>{const[pid,cid]=k.split('|');
+    return `<tr><td>${esc(nameOf(pid,cid))}</td><td class="r"><b>${q}개</b></td></tr>`}).join('');
+  const tot=recs.reduce((a,r)=>a+r.qty,0);
+  el.innerHTML=`<div class="card"><h2 class="sec">📅 기간 생산량</h2>
+    <div class="ln" style="display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
+      <input type="date" id="rgFrom" value="${rangeFrom}"> ~ <input type="date" id="rgTo" value="${rangeTo}">
+      <span class="hint">기간 내 생산(예정 포함) 기록 합계</span></div>
+    <table class="t" style="max-width:420px"><tr><th>품목</th><th class="r" style="width:100px">수량</th></tr>
+    ${rows||'<tr><td colspan="2" style="color:var(--sub)">기간 내 생산 기록 없음</td></tr>'}
+    ${rows?`<tr><td><b>합계</b></td><td class="r"><b>${tot}개</b></td></tr>`:''}</table></div>`;
+  $('#rgFrom').onchange=e=>{rangeFrom=e.target.value;renderRangeView()};
+  $('#rgTo').onchange=e=>{rangeTo=e.target.value;renderRangeView()};
+}
 function renderStockView(){
   const el=$('#stockView');
   if(!showStockView){el.innerHTML='';return}
@@ -692,13 +710,22 @@ function renderStockView(){
 function renderStats(){
   const mPrefix=`${curY}-${String(curM+1).padStart(2,'0')}`;
   const mAct=S.records.filter(r=>r.date.startsWith(mPrefix)&&r.date<=today).reduce((a,r)=>a+r.qty,0);
-  const totRem=S.orders.filter(o=>!o.done).reduce((a,o)=>a+Math.max(0,o.qty-cumActual(o.pid,o.cid)),0);
   const po=poData();
   const totOrder=po.flakeRows.reduce((a,r)=>a+r.orderKg,0);
-  const fc=forecast();let last=null;
-  for(const o of S.orders){const r=fc.etas.get(o.id);if(r&&r.eta&&r.eta!=='done'&&(!last||r.eta>last))last=r.eta}
+  const hasOrders=S.orders.some(o=>!o.done);
+  const futureRecs=S.records.filter(r=>r.date>today);
+  let totRem,last=null,pwNeed;
+  if(hasOrders){ /* 진행 중 발주 기준 */
+    totRem=S.orders.filter(o=>!o.done).reduce((a,o)=>a+Math.max(0,o.qty-cumActual(o.pid,o.cid)),0);
+    const fc=forecast();
+    for(const o of S.orders){const r=fc.etas.get(o.id);if(r&&r.eta&&r.eta!=='done'&&(!last||r.eta>last))last=r.eta}
+    pwNeed=kg1(po.flakeRows.filter(r=>r.kind==='powder').reduce((a,r)=>a+r.kg,0));
+  }else{ /* 발주 마감 후: 캘린더에 남은 예정 일정 기준 */
+    totRem=futureRecs.reduce((a,r)=>a+r.qty,0);
+    last=futureRecs.reduce((m,r)=>r.date>m?r.date:m,'')||null;
+    pwNeed=kg1(futureRecs.reduce((a,r)=>{const c=colorOf(prodOf(r.pid),r.cid);return a+r.qty*((c&&c.powderKg)||0)},0));
+  }
   const pwStock=kg1(S.flakes.filter(f=>f.kind==='powder').reduce((a,f)=>a+stockNow(f),0));
-  const pwNeed=kg1(po.flakeRows.filter(r=>r.kind==='powder').reduce((a,r)=>a+r.kg,0));
   $('#stats').innerHTML=[
     ['잔여 목표',totRem+'개'],['플레이크 발주 필요',kg1(totOrder)+'kg'],
     [`파우더 재고 / 소요`,`<span style="${pwStock<pwNeed?'color:var(--red)':''}">${pwStock}</span> / ${pwNeed}kg`],
@@ -776,9 +803,6 @@ function renderPanel(){
     stRows.push(`<li>${esc(f.name)} (파우더): <b style="${v<0?'color:var(--red)':''}">${v}kg</b>${v<0?' ⚠️':''}</li>`);
   });
   if(stRows.length)h+=`<ul class="cumlist"><b>📦 ${kdate(selDate)} 기준 예상 재고 (배합 포대 단위)</b>${stRows.join('')}</ul>`;
-  const cums=[];
-  S.products.forEach(p=>p.colors.forEach(c=>{const v=cumActual(p.id,c.id,selDate);if(v>0)cums.push(`<li>${esc(p.name)} - ${esc(c.name)}: <b>${v}개</b></li>`)}));
-  if(cums.length)h+=`<ul class="cumlist"><b>📊 ${kdate(selDate)}까지 누적 생산</b>${cums.join('')}</ul>`;
   $('#dayPanel').innerHTML=h;
   $('#holBtn').onclick=()=>{
     if(isOff(selDate)){ /* 해제: 지정 휴무면 제거, 주말 규칙이면 예외(근무일) 등록 */
@@ -1152,8 +1176,9 @@ function renderHistory(){
   const need=po.flakeRows.filter(r=>r.orderKg>0);
   let curHtml='';
   if(cur.length){
-    curHtml+=`<div class="sup" style="border:2px solid var(--blue)">
-      <div class="top"><span class="nm">🏭 생산 발주 (진행 중)</span>
+    curHtml+='<div class="row" style="align-items:stretch">';
+    curHtml+=`<div class="sup" style="flex:1;min-width:380px;border:2px solid var(--blue)">
+      <div class="top"><span class="nm">🏭 생산 발주 (공장)</span>
         <span class="badge" style="${S.settings.prodConfirmed?'background:var(--green-l);color:var(--green)':''}">${S.settings.prodConfirmed?'✅ 확정 · 캘린더 반영 중':'협의 중'}</span>
         <button class="btn sm ${S.settings.prodConfirmed?'':'pri'}" id="prodConfirmBtn" style="margin-left:auto">${S.settings.prodConfirmed?'확정 해제':'✅ 생산 발주 확정 → 캘린더 반영'}</button></div>
       <table class="t hist"><tr><th style="width:200px">품목</th><th class="r" style="width:70px">목표</th><th style="width:100px">납품 희망</th><th style="width:110px">예상 완료</th><th>메모</th></tr>
@@ -1162,8 +1187,8 @@ function renderHistory(){
       <p class="hint" style="margin-top:4px">업체와 협의 후 수정은 <b>생산 발주 🏭</b> 탭에서 — 확정 상태에서 수정해도 캘린더에 바로 반영됩니다.</p></div>`;
     const ab=S.poBatches.find(b=>b.id===S.settings.activeMatBatchId);
     if(ab){ /* 자재 발주 확정 상태 */
-      curHtml+=`<div class="sup" style="border:2px solid var(--amber)">
-        <div class="top"><span class="nm">♻️ 자재 발주</span>
+      curHtml+=`<div class="sup" style="flex:1;min-width:380px;border:2px solid var(--amber)">
+        <div class="top"><span class="nm">🎨 배합 발주 — 춘천자활센터</span>
           <span class="badge" style="background:var(--green-l);color:var(--green)">✅ 확정 · ${kdate(ab.due)} 입고 예정</span>
           <span style="margin-left:auto;display:flex;gap:6px;align-items:center">
             <label style="font-size:12px;display:flex;gap:4px;align-items:center">입고일 변경 <input type="date" id="abDue" value="${ab.due||''}"></label>
@@ -1176,23 +1201,23 @@ function renderHistory(){
           <td class="r"><input type="number" data-absk="${i}" value="${it.sacks||''}" min="0" style="width:64px"></td>
           <td class="r">${it.kg}kg</td></tr>`}).join('')}</table>
         <p class="hint" style="margin-top:4px">입고일·수량을 수정하면 캘린더의 📦 입고 예정도 같이 바뀝니다. 입고일 전에는 생산이 시작되지 않는 것으로 계산돼요.</p></div>
-        <div style="border-top:1px solid var(--line);margin:16px 0"></div>`;
+        </div><div style="border-top:1px solid var(--line);margin:16px 0"></div>`;
     }else{
-      curHtml+=`<div class="sup" style="border:2px solid var(--amber)">
-        <div class="top"><span class="nm">♻️ 자재 발주 — 춘천자활센터 (색상 배합 ${po.blendRows.length}종)</span>
+      curHtml+=`<div class="sup" style="flex:1;min-width:380px;border:2px solid var(--amber)">
+        <div class="top"><span class="nm">🎨 배합 발주 — 춘천자활센터 (${po.blendRows.length}종)</span>
           <span class="badge">협의 중</span>
           <span style="margin-left:auto;display:flex;gap:6px;align-items:center">
             <label style="font-size:12px;display:flex;gap:4px;align-items:center">입고 예정일 <input type="date" id="hbDue"></label>
-            <button class="btn sm pri" id="matConfirmBtn">✅ 자재 발주 확정 → 캘린더 반영</button></span></div>
+            <button class="btn sm pri" id="matConfirmBtn">✅ 배합 발주 확정 → 캘린더 반영</button></span></div>
         ${po.blendRows.length?`<table class="t hist"><tr><th style="width:220px">색상</th><th class="r" style="width:80px">수량</th><th class="r" style="width:100px">필요 kg</th><th class="r" style="width:90px">발주 포대</th></tr>
         ${po.blendRows.map(r=>`<tr><td>${esc(r.p.name)} - ${esc(r.c.name)}</td><td class="r">${r.qty}개</td><td class="r">${kg1(r.kg)}kg</td><td class="r"><b>${r.sacks}</b></td></tr>`).join('')}</table>`
         :'<p class="hint">진행 중인 생산 발주가 없습니다.</p>'}</div>
-        <div style="border-top:1px solid var(--line);margin:16px 0"></div>`;
+        </div><div style="border-top:1px solid var(--line);margin:16px 0"></div>`;
     }
   }else{
     curHtml=`<div class="sup" style="border:2px dashed var(--line)">
       <div class="top"><span class="nm" style="color:var(--sub)">진행 중인 발주가 없습니다</span></div>
-      <p class="hint">생산 발주 🏭 탭에서 제작 순서를 등록하면 여기에 <b>생산 발주 확정 / 자재 발주 확정</b> 버튼이 나타나요.
+      <p class="hint">생산 발주 🏭 탭에서 제작 순서를 등록하면 여기에 <b>생산 발주 확정 / 배합 발주 확정</b> 버튼이 나타나요.
       이미 마감해서 보관된 발주를 이어서 진행하려면 아래 보관 내역의 <b>↩️ 복원</b>을 누르세요.</p></div>
       <div style="border-top:1px solid var(--line);margin:16px 0"></div>`;
   }
@@ -1369,6 +1394,7 @@ $('#prevM').onclick=()=>{curM--;if(curM<0){curM=11;curY--}render()};
 $('#nextM').onclick=()=>{curM++;if(curM>11){curM=0;curY++}render()};
 $('#goToday').onclick=()=>{const n=new Date();curY=n.getFullYear();curM=n.getMonth();selDate=today;render()};
 $('#stockViewBtn').onclick=()=>{showStockView=!showStockView;render()};
+$('#rangeBtn').onclick=()=>{showRange=!showRange;render()};
 $('#addProd').onclick=()=>{const v=$('#pName').value.trim();if(!v)return;S.products.push({id:uid(),name:v,cap:Math.max(0,+$('#pCap').value||0),colors:[]});$('#pName').value='';$('#pCap').value='';render()};
 $('#addOrder').onclick=()=>{
   const pid=$('#oProd').value,cid=$('#oColor').value,qty=+$('#oQty').value;
