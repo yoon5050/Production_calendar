@@ -916,13 +916,13 @@ const supRowsFor=rows=>rows.map(r=>[esc(r.name)+(r.kind==='powder'?' (파우더)
 function printBlendSheet(s){
   const po=poData();
   if(!po.blendRows.length){alert('진행 중인 제작 순서가 없습니다.');return}
-  $('#printSheet').innerHTML=officialSheet('발 주 서',supLabel(s),blendRowsFor(po),{note:'비고란의 배합은 1포대당 kg 기준입니다.'});
+  $('#printSheet').innerHTML=officialSheet('발 주 서',supLabel(s),blendRowsFor(po),{noHonorific:true,note:'비고란의 배합은 1포대당 kg 기준입니다.'});
   window.print();
 }
 function printSupSheet(supId){
   const po=poData();const need=(po.sups.get(supId)||[]).filter(r=>r.orderKg>0);
   if(!need.length){alert('이 발주처에 발주할 자재가 없습니다.');return}
-  $('#printSheet').innerHTML=officialSheet('발 주 서',supLabel(supOf(supId)),supRowsFor(need));
+  $('#printSheet').innerHTML=officialSheet('발 주 서',supLabel(supOf(supId)),supRowsFor(need),{noHonorific:true});
   window.print();
 }
 
@@ -1188,7 +1188,7 @@ function renderHistory(){
     const ab=S.poBatches.find(b=>b.id===S.settings.activeMatBatchId);
     if(ab){ /* 자재 발주 확정 상태 */
       curHtml+=`<div class="sup" style="flex:1;min-width:380px;border:2px solid var(--amber)">
-        <div class="top"><span class="nm">🎨 배합 발주 — 춘천자활센터</span>
+        <div class="top"><span class="nm">🎨 배합 발주</span>
           <span class="badge" style="background:var(--green-l);color:var(--green)">✅ 확정 · ${kdate(ab.due)} 입고 예정</span>
           <span style="margin-left:auto;display:flex;gap:6px;align-items:center">
             <label style="font-size:12px;display:flex;gap:4px;align-items:center">입고일 변경 <input type="date" id="abDue" value="${ab.due||''}"></label>
@@ -1204,7 +1204,7 @@ function renderHistory(){
         </div><div style="border-top:1px solid var(--line);margin:16px 0"></div>`;
     }else{
       curHtml+=`<div class="sup" style="flex:1;min-width:380px;border:2px solid var(--amber)">
-        <div class="top"><span class="nm">🎨 배합 발주 — 춘천자활센터 (${po.blendRows.length}종)</span>
+        <div class="top"><span class="nm">🎨 배합 발주 (${po.blendRows.length}종)</span>
           <span class="badge">협의 중</span>
           <span style="margin-left:auto;display:flex;gap:6px;align-items:center">
             <label style="font-size:12px;display:flex;gap:4px;align-items:center">입고 예정일 <input type="date" id="hbDue"></label>
@@ -1228,15 +1228,22 @@ function renderHistory(){
       <span style="font-size:12px;color:var(--sub)">제작 ${b.orders.length}건 · 자재 ${b.flakeOrders.length}종</span>
       <button class="btn sm" data-hrestore="${b.id}" style="margin-left:auto">↩️ 생산 발주로 복원 (수정·확정)</button>
       <button class="btn sm danger" data-hx="${b.id}">삭제</button></div>
-      <div style="margin:8px 0 4px;font-size:12px;font-weight:700;color:var(--txt)">🏭 생산 발주 (공장)</div>
-      <table class="t hist"><tr><th style="width:200px">품목</th><th class="r" style="width:70px">목표</th><th class="r" style="width:90px">당시 완료</th><th style="width:100px">납품 희망</th><th>메모</th></tr>
-      ${b.orders.map(o=>`<tr><td>${esc(o.name)}${o.finished?' ✅':''}</td><td class="r">${o.qty}개</td><td class="r">${o.done}개</td><td>${o.due?kdate(o.due):'-'}</td><td>${esc(o.note)}</td></tr>`).join('')}</table>
-      ${b.blendOrders.length?`<div style="margin:10px 0 4px;font-size:12px;font-weight:700;color:var(--txt)">🎨 배합 발주 (색상 단위 · 춘천자활 등)</div>
-      <table class="t hist"><tr><th style="width:200px">색상</th><th class="r" style="width:70px">수량</th><th class="r" style="width:70px">포대</th></tr>
-      ${b.blendOrders.map(o=>`<tr><td>${esc(o.name)}</td><td class="r">${o.qty}개</td><td class="r">${o.sacks}</td></tr>`).join('')}</table>`:''}
-      ${b.flakeOrders.length?`<div style="margin:10px 0 4px;font-size:12px;font-weight:700;color:var(--txt)">♻️ 자재 발주 (플레이크·파우더 업체)</div>
-      <table class="t hist"><tr><th style="width:200px">자재</th><th style="width:130px">발주처</th><th class="r" style="width:80px">발주량</th><th class="r" style="width:70px">포대</th></tr>
-      ${b.flakeOrders.map(o=>`<tr><td>${esc(o.name)}${o.kind==='powder'?' (파우더)':''}</td><td>${esc(o.sup)||'미지정'}</td><td class="r">${o.kg}kg</td><td class="r">${o.sacks}</td></tr>`).join('')}</table>`:''}
+      <div class="row" style="align-items:flex-start">
+        <div style="flex:1;min-width:340px">
+          <div style="margin:8px 0 4px;font-size:12px;font-weight:700;color:var(--txt)">🏭 생산 발주 (공장)</div>
+          <table class="t hist"><tr><th style="width:180px">품목</th><th class="r" style="width:64px">목표</th><th class="r" style="width:84px">당시 완료</th><th style="width:96px">납품 희망</th><th>메모</th></tr>
+          ${b.orders.map(o=>`<tr><td>${esc(o.name)}${o.finished?' ✅':''}</td><td class="r">${o.qty}개</td><td class="r">${o.done}개</td><td>${o.due?kdate(o.due):'-'}</td><td>${esc(o.note)}</td></tr>`).join('')}</table>
+        </div>
+        <div style="flex:1;min-width:300px">
+          <div style="margin:8px 0 4px;font-size:12px;font-weight:700;color:var(--txt)">🎨 배합 발주</div>
+          ${b.blendOrders.length?`<table class="t hist"><tr><th style="width:180px">색상</th><th class="r" style="width:64px">수량</th><th class="r" style="width:64px">포대</th></tr>
+          ${b.blendOrders.map(o=>`<tr><td>${esc(o.name)}</td><td class="r">${o.qty}개</td><td class="r">${o.sacks}</td></tr>`).join('')}</table>`
+          :'<p class="hint">배합 발주 없음</p>'}
+          ${b.flakeOrders.length?`<div style="margin:10px 0 4px;font-size:12px;font-weight:700;color:var(--txt)">♻️ 자재 발주 (예전 형식)</div>
+          <table class="t hist"><tr><th style="width:160px">자재</th><th style="width:110px">발주처</th><th class="r" style="width:74px">발주량</th><th class="r" style="width:60px">포대</th></tr>
+          ${b.flakeOrders.map(o=>`<tr><td>${esc(o.name)}${o.kind==='powder'?' (파우더)':''}</td><td>${esc(o.sup)||'미지정'}</td><td class="r">${o.kg}kg</td><td class="r">${o.sacks}</td></tr>`).join('')}</table>`:''}
+        </div>
+      </div>
     </div>`).join(''):'<p class="hint">아직 보관된 생산 발주 이력이 없습니다.</p>');
   document.querySelectorAll('#histList [data-hx]').forEach(btn=>btn.onclick=()=>{
     if(confirm('이 이력을 삭제할까요?')){S.history=S.history.filter(b=>b.id!==btn.dataset.hx);render()}
@@ -1277,7 +1284,7 @@ function renderHistory(){
       const f=flakeOf(it.fid);
       return [esc(f?f.name:'?'),'kg',String(it.kg),ab2.due?kdate(ab2.due):'',it.sacks+'포대'];
     });
-    $('#printSheet').innerHTML=officialSheet('발 주 서',supLabel(s),rows,{note:'비고란의 배합은 1포대당 kg 기준입니다.'});
+    $('#printSheet').innerHTML=officialSheet('발 주 서',supLabel(s),rows,{noHonorific:true,note:'비고란의 배합은 1포대당 kg 기준입니다.'});
     window.print();
   };
   /* 진행 중 발주 확정 버튼들 */
@@ -1377,7 +1384,7 @@ $('#printPO').onclick=()=>{
   const po=poData();
   const parts=[];
   if(po.blendRows.length)po.blendSups.forEach(s=>{
-    parts.push(officialSheet('발 주 서',supLabel(s),blendRowsFor(po),{note:'비고란의 배합은 1포대당 kg 기준입니다.'}));
+    parts.push(officialSheet('발 주 서',supLabel(s),blendRowsFor(po),{noHonorific:true,note:'비고란의 배합은 1포대당 kg 기준입니다.'}));
   });
   if(!parts.length){alert('발주할 내용이 없습니다.');return}
   $('#printSheet').innerHTML=parts.join('<div style="page-break-after:always"></div>');
