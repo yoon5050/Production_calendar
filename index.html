@@ -1180,7 +1180,7 @@ function renderHistory(){
     curHtml+=`<div class="sup" style="flex:1;min-width:380px;border:2px solid var(--blue)">
       <div class="top"><span class="nm">🏭 생산 발주 (공장)</span>
         <span class="badge" style="${S.settings.prodConfirmed?'background:var(--green-l);color:var(--green)':''}">${S.settings.prodConfirmed?'✅ 확정 · 캘린더 반영 중':'협의 중'}</span>
-        <button class="btn sm ${S.settings.prodConfirmed?'':'pri'}" id="prodConfirmBtn" style="margin-left:auto">${S.settings.prodConfirmed?'확정 해제':'✅ 생산 발주 확정 → 캘린더 반영'}</button></div>
+        <button class="btn sm ${S.settings.prodConfirmed?'':'pri'}" id="prodConfirmBtn" style="margin-left:auto">${S.settings.prodConfirmed?'확정 해제':'✅ 생산 발주 확정'}</button></div>
       <table class="t hist"><tr><th style="width:200px">품목</th><th class="r" style="width:70px">목표</th><th style="width:100px">납품 희망</th><th style="width:110px">예상 완료</th><th>메모</th></tr>
       ${cur.map(o=>{const r=fc.etas.get(o.id);
         return `<tr><td>${esc(nameOf(o.pid,o.cid))}</td><td class="r">${o.qty}개</td><td>${o.due?kdate(o.due):'-'}</td><td>${r&&r.eta==='done'?'달성':r&&r.eta?kdate(r.eta):'-'}</td><td>${esc(o.note||'')}</td></tr>`}).join('')}</table>
@@ -1208,7 +1208,7 @@ function renderHistory(){
           <span class="badge">협의 중</span>
           <span style="margin-left:auto;display:flex;gap:6px;align-items:center">
             <label style="font-size:12px;display:flex;gap:4px;align-items:center">입고 예정일 <input type="date" id="hbDue"></label>
-            <button class="btn sm pri" id="matConfirmBtn">✅ 배합 발주 확정 → 캘린더 반영</button></span></div>
+            <button class="btn sm pri" id="matConfirmBtn">✅ 배합 발주 확정</button></span></div>
         ${po.blendRows.length?`<table class="t hist"><tr><th style="width:220px">색상</th><th class="r" style="width:80px">수량</th><th class="r" style="width:100px">필요 kg</th><th class="r" style="width:90px">발주 포대</th></tr>
         ${po.blendRows.map(r=>`<tr><td>${esc(r.p.name)} - ${esc(r.c.name)}</td><td class="r">${r.qty}개</td><td class="r">${kg1(r.kg)}kg</td><td class="r"><b>${r.sacks}</b></td></tr>`).join('')}</table>`
         :'<p class="hint">진행 중인 생산 발주가 없습니다.</p>'}</div>
@@ -1239,9 +1239,6 @@ function renderHistory(){
           ${b.blendOrders.length?`<table class="t hist"><tr><th style="width:180px">색상</th><th class="r" style="width:64px">수량</th><th class="r" style="width:64px">포대</th></tr>
           ${b.blendOrders.map(o=>`<tr><td>${esc(o.name)}</td><td class="r">${o.qty}개</td><td class="r">${o.sacks}</td></tr>`).join('')}</table>`
           :'<p class="hint">배합 발주 없음</p>'}
-          ${b.flakeOrders.length?`<div style="margin:10px 0 4px;font-size:12px;font-weight:700;color:var(--txt)">♻️ 자재 발주 (예전 형식)</div>
-          <table class="t hist"><tr><th style="width:160px">자재</th><th style="width:110px">발주처</th><th class="r" style="width:74px">발주량</th><th class="r" style="width:60px">포대</th></tr>
-          ${b.flakeOrders.map(o=>`<tr><td>${esc(o.name)}${o.kind==='powder'?' (파우더)':''}</td><td>${esc(o.sup)||'미지정'}</td><td class="r">${o.kg}kg</td><td class="r">${o.sacks}</td></tr>`).join('')}</table>`:''}
         </div>
       </div>
     </div>`).join(''):'<p class="hint">아직 보관된 생산 발주 이력이 없습니다.</p>');
