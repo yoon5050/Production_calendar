@@ -138,19 +138,24 @@ table.hist th,table.hist td{padding:5px 14px}
 }
 @media(max-width:760px){.cal-wrap{min-width:0}}
 </style>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 </head>
 <body>
 <div id="authGate" style="display:none;position:fixed;inset:0;background:var(--bg);z-index:9999;align-items:center;justify-content:center;flex-direction:column;gap:16px">
   <div style="font-size:40px">📦</div>
   <h1 style="font-size:22px">생산 캘린더</h1>
   <p style="color:var(--sub)">로우리트콜렉티브 내부 도구 — <b>@lowlit.co</b> 구글 계정으로 로그인하세요</p>
-  <div id="gBtn"></div>
+  <button class="btn pri" id="fbLoginBtn" style="font-size:15px;padding:10px 22px">구글로 로그인</button>
   <p id="authErr" style="color:var(--red);font-size:13px;font-weight:700"></p>
 </div>
 <header>
   <h1>📦 생산 캘린더</h1>
   <span id="todayLabel" style="color:var(--sub);font-size:13px"></span>
   <span id="syncStat" style="font-size:12px;color:var(--sub)"></span>
+  <span id="userBadge" style="font-size:12px;color:var(--sub)"></span>
+  <button class="btn sm" id="logoutBtn" style="display:none">로그아웃</button>
   <nav class="tabs">
     <button data-tab="cal" class="on">캘린더</button>
     <button data-tab="orders">생산 발주 🏭</button>
@@ -333,22 +338,12 @@ table.hist th,table.hist td{padding:5px 14px}
         <label class="fl">담당자<input type="text" id="faPerson"></label>
         <label class="fl">연락처<input type="text" id="faPhone"></label>
       </div>
-      <h2 class="sec" style="margin-top:18px">☁️ GitHub 동기화 — 모든 기기에서 같은 데이터 보기</h2>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-        <label class="fl">GitHub 아이디 (저장소 소유자)<input type="text" id="ghOwner" placeholder="예: lowlit"></label>
-        <label class="fl">저장소 이름 (비공개 권장)<input type="text" id="ghRepo" placeholder="예: prodcal-data"></label>
-        <label class="fl">파일 경로<input type="text" id="ghPath" placeholder="prodcal-data.json"></label>
-        <label class="fl">토큰 (Fine-grained PAT)<input type="password" id="ghToken" placeholder="github_pat_..."></label>
-      </div>
-      <div class="toolbar" style="margin-top:10px">
-        <button class="btn pri" id="ghSave">연결 저장</button>
-        <button class="btn" id="ghPull">⬇ 서버에서 불러오기</button>
-        <button class="btn" id="ghPushBtn">⬆ 지금 서버로 저장</button>
-        <span id="ghStat" class="hint"></span>
-      </div>
-      <p class="hint">① github.com에서 <b>비공개 저장소</b>를 하나 만들고 ② Settings → Developer settings → <b>Fine-grained tokens</b>에서
-      그 저장소만 선택 + <b>Contents: Read and write</b> 권한으로 토큰 발급 ③ 위에 입력 후 연결 저장.<br>
-      같은 정보를 입력한 모든 기기가 같은 데이터를 보게 되고, 변경하면 몇 초 뒤 자동 저장됩니다. 토큰은 이 기기에만 저장돼요.</p>
+      <h2 class="sec" style="margin-top:18px">☁️ 실시간 공유 (Firebase) — 모든 기기에서 같은 데이터</h2>
+      <p class="hint" id="fbInfo"></p>
+      <p class="hint">설정 방법(최초 1회, 무료): ① console.firebase.google.com에서 프로젝트 생성 →
+      ② Authentication에서 Google 로그인 사용 설정 → ③ Firestore 데이터베이스 생성(서울) + 규칙에 @lowlit.co 제한 게시 →
+      ④ 프로젝트 설정에서 firebaseConfig 복사 → ⑤ 이 HTML 파일 상단의 <b>PASTE_YOUR_CONFIG_HERE</b> 부분을 교체 →
+      ⑥ 배포 주소를 승인된 도메인에 추가. 파일 안 주석에 같은 내용이 단계별로 적혀 있어요.</p>
       <h2 class="sec" style="margin-top:18px">데이터 백업</h2>
       <div class="toolbar">
         <button class="btn" id="exportBtn">⬇ 백업 저장 (JSON)</button>
@@ -363,38 +358,34 @@ table.hist th,table.hist td{padding:5px 14px}
 <div id="printSheet"></div>
 <script>
 'use strict';
-/* ===== 구글 로그인 게이트 (@lowlit.co 전용) =====
-   [설정 방법]
-   1. console.cloud.google.com → API 및 서비스 → 사용자 인증 정보 → OAuth 클라이언트 ID(웹 애플리케이션) 생성
-   2. '승인된 자바스크립트 원본'에 배포 주소 추가 (예: https://lowlit-calendar.vercel.app)
-   3. 발급받은 클라이언트 ID를 아래 GOOGLE_CLIENT_ID에 붙여넣기
-   ※ 비워두면 로그인 없이 열립니다 (내 컴퓨터에서 파일로 열 때용) */
-const GOOGLE_CLIENT_ID='';
-const ALLOWED_DOMAIN='lowlit.co';
-(function authGate(){
-  if(!GOOGLE_CLIENT_ID||location.protocol==='file:')return;
-  if((sessionStorage.getItem('lowlit_auth')||'').endsWith('@'+ALLOWED_DOMAIN))return;
-  const gate=document.getElementById('authGate');
-  gate.style.display='flex';
-  const s=document.createElement('script');
-  s.src='https://accounts.google.com/gsi/client';
-  s.onload=()=>{
-    google.accounts.id.initialize({client_id:GOOGLE_CLIENT_ID,callback:res=>{
-      try{
-        const p=JSON.parse(decodeURIComponent(escape(atob(res.credential.split('.')[1].replace(/-/g,'+').replace(/_/g,'/')))));
-        const em=(p.email||'').toLowerCase();
-        if(p.email_verified&&em.endsWith('@'+ALLOWED_DOMAIN)){
-          sessionStorage.setItem('lowlit_auth',em);
-          gate.style.display='none';
-        }else{
-          document.getElementById('authErr').textContent='@'+ALLOWED_DOMAIN+' 계정만 사용할 수 있어요.'+(em?' ('+em+')':'');
+/* ===== Firebase 설정 — 구글 로그인(@lowlit.co) + 전 기기 실시간 공유 =====
+   [최초 1회 설정 — 무료]
+   1) console.firebase.google.com → 프로젝트 만들기 (애널리틱스 꺼도 됨)
+   2) 빌드 → Authentication → 시작하기 → Google 사용 설정 → 저장
+   3) 빌드 → Firestore Database → 데이터베이스 만들기 → 위치 asia-northeast3(서울) → 프로덕션 모드
+      → 규칙 탭에 아래 붙여넣고 게시:
+      rules_version = '2';
+      service cloud.firestore {
+        match /databases/{database}/documents {
+          match /{document=**} {
+            allow read, write: if request.auth != null
+              && request.auth.token.email.matches('.*@lowlit[.]co$');
+          }
         }
-      }catch(e){document.getElementById('authErr').textContent='로그인 처리 중 오류가 발생했어요. 다시 시도해 주세요.'}
-    }});
-    google.accounts.id.renderButton(document.getElementById('gBtn'),{theme:'outline',size:'large',text:'signin_with'});
-  };
-  document.head.appendChild(s);
-})();
+      }
+   4) ⚙️ 프로젝트 설정 → 내 앱 → 웹(</>) 추가 → firebaseConfig 값 복사
+   5) 아래 firebaseConfig 객체를 복사한 값으로 통째로 교체
+   6) 배포 후 Authentication → Settings → 승인된 도메인에 배포 주소 추가 (예: xxx.vercel.app)
+   ※ 교체 전에는 로그인 없이 '이 기기에만 저장'되는 로컬 모드로 동작합니다. */
+const firebaseConfig={apiKey: "AIzaSyBjixmsGkOE5Eh7c2L-jDv9Mms2ObvHHwM",
+  authDomain: "production-calendar-program.firebaseapp.com",
+  projectId: "production-calendar-program",
+  storageBucket: "production-calendar-program.firebasestorage.app",
+  messagingSenderId: "489945378189",
+  appId: "1:489945378189:web:8d019c4cf8cacc179221c4",
+  measurementId: "G-PHJK1H75GZ"};
+const ALLOWED_DOMAIN='lowlit.co';
+const FB_ON=typeof firebase!=='undefined'&&firebaseConfig.apiKey&&firebaseConfig.apiKey!=='PASTE_YOUR_CONFIG_HERE';
 
 const KEY='prodcal_v2';
 const $=s=>document.querySelector(s);
@@ -522,7 +513,12 @@ function ENS(d){
   (d.products||[]).forEach(p=>p.colors.forEach(c=>{c.powderKg=c.powderKg||0;c.memo=c.memo||''}));
   return d;
 }
-const save=()=>{S.updatedAt=Date.now();localStorage.setItem(KEY,JSON.stringify(S));scheduleSync()};
+let applyingRemote=false; /* 서버 데이터 적용 중에는 재업로드 금지 (기기 간 핑퐁 방지) */
+const save=()=>{
+  if(!applyingRemote)S.updatedAt=Date.now();
+  localStorage.setItem(KEY,JSON.stringify(S));
+  if(!applyingRemote)scheduleSync();
+};
 
 const today=fmt(new Date());
 let curY=new Date().getFullYear(),curM=new Date().getMonth();
@@ -1407,77 +1403,73 @@ $('#importFile').onchange=e=>{
 };
 $('#resetBtn').onclick=()=>{if(confirm('모든 데이터가 삭제되고 기본 배합비로 초기화됩니다. 진행할까요?')){localStorage.removeItem(KEY);location.reload()}};
 
-/* ===== GitHub 동기화 ===== */
-const SYNCKEY='prodcal_sync';
-let SYNC={token:'',owner:'',repo:'',path:'prodcal-data.json',branch:'main'};
-try{Object.assign(SYNC,JSON.parse(localStorage.getItem(SYNCKEY))||{})}catch(e){}
-let remoteSha=null,syncTimer=null;
-const syncReady=()=>!!(SYNC.token&&SYNC.owner&&SYNC.repo&&SYNC.path);
+/* ===== Firebase 실시간 동기화 ===== */
+let FBdoc=null,FBtimer=null;
 function setStat(t,err){
   const el=$('#syncStat');if(el){el.textContent=t;el.style.color=err?'var(--red)':'var(--sub)'}
-  const g=$('#ghStat');if(g){g.textContent=t;g.style.color=err?'var(--red)':'var(--sub)'}
-}
-const ghUrl=()=>`https://api.github.com/repos/${SYNC.owner}/${SYNC.repo}/contents/${SYNC.path}`;
-const ghHead=()=>({Authorization:'Bearer '+SYNC.token,Accept:'application/vnd.github+json'});
-async function ghFetch(){
-  const r=await fetch(`${ghUrl()}?ref=${SYNC.branch}&t=${Date.now()}`,{headers:ghHead(),cache:'no-store'});
-  if(r.status===404){remoteSha=null;return null}
-  if(!r.ok)throw new Error('응답 '+r.status+(r.status===401?' (토큰 확인)':''));
-  const j=await r.json();remoteSha=j.sha;
-  return JSON.parse(decodeURIComponent(escape(atob(j.content.replace(/\s/g,'')))));
-}
-async function ghPush(retry){
-  const body={message:'생산캘린더 자동 저장 '+new Date().toLocaleString('ko-KR'),
-    content:btoa(unescape(encodeURIComponent(JSON.stringify(S)))),branch:SYNC.branch};
-  if(remoteSha)body.sha=remoteSha;
-  const r=await fetch(ghUrl(),{method:'PUT',headers:ghHead(),body:JSON.stringify(body)});
-  if((r.status===409||r.status===422)&&!retry){await ghFetch();return ghPush(true)}
-  if(!r.ok)throw new Error('응답 '+r.status);
-  const j=await r.json();remoteSha=j.content&&j.content.sha;
+  const g=$('#fbInfo');if(g){g.textContent=t;g.style.color=err?'var(--red)':'var(--sub)'}
 }
 function scheduleSync(){
-  if(!syncReady())return;
-  clearTimeout(syncTimer);
+  if(!FBdoc)return;
+  clearTimeout(FBtimer);
   setStat('☁️ 저장 대기…');
-  syncTimer=setTimeout(()=>{
-    ghPush().then(()=>setStat('☁️ 저장됨 '+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})))
+  FBtimer=setTimeout(()=>{
+    FBdoc.set({updatedAt:S.updatedAt||Date.now(),json:JSON.stringify(S)})
+      .then(()=>setStat('☁️ 저장됨 '+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})))
       .catch(e=>setStat('☁️ 저장 실패: '+e.message,1));
-  },2500);
+  },1500);
 }
-async function pullRemote(force){
-  if(!syncReady())return;
-  setStat('☁️ 불러오는 중…');
-  try{
-    const remote=await ghFetch();
-    if(remote===null){await ghPush();setStat('☁️ 저장소에 새 파일 생성됨');return}
-    if(force||(remote.updatedAt||0)>(S.updatedAt||0)){
-      S=ENS(remote);localStorage.setItem(KEY,JSON.stringify(S));render();
+function startSync(){
+  const db=firebase.firestore();
+  try{db.enablePersistence({synchronizeTabs:true}).catch(()=>{})}catch(e){}
+  FBdoc=db.collection('prodcal').doc('data');
+  FBdoc.onSnapshot(snap=>{
+    if(!snap.exists){scheduleSync();return} /* 첫 사용: 현재 데이터 업로드 */
+    if(snap.metadata.hasPendingWrites)return; /* 내가 방금 쓴 것 */
+    const d=snap.data();
+    if((d.updatedAt||0)>(S.updatedAt||0)){
+      try{
+        applyingRemote=true;
+        S=ENS(JSON.parse(d.json));
+        S.updatedAt=d.updatedAt;
+        render();
+      }catch(e){}finally{applyingRemote=false}
     }
     setStat('☁️ 동기화됨 '+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}));
-  }catch(e){setStat('☁️ 연결 실패: '+e.message,1)}
+  },e=>setStat('☁️ 연결 오류: '+e.message,1));
 }
-$('#ghSave').onclick=()=>{
-  SYNC={token:$('#ghToken').value.trim(),owner:$('#ghOwner').value.trim(),repo:$('#ghRepo').value.trim(),
-    path:$('#ghPath').value.trim()||'prodcal-data.json',branch:'main'};
-  localStorage.setItem(SYNCKEY,JSON.stringify(SYNC));
-  if(!syncReady()){setStat('☁️ 정보를 모두 입력해 주세요',1);return}
-  pullRemote(false);
-};
-$('#ghPull').onclick=()=>{
-  if(!syncReady()){alert('먼저 연결 정보를 입력하고 저장해 주세요.');return}
-  if(confirm('서버 데이터로 교체할까요?\n이 기기에서만 변경한 내용은 덮어써집니다.'))pullRemote(true);
-};
-$('#ghPushBtn').onclick=()=>{
-  if(!syncReady()){alert('먼저 연결 정보를 입력하고 저장해 주세요.');return}
-  setStat('☁️ 저장 중…');
-  ghPush().then(()=>setStat('☁️ 저장됨')).catch(e=>setStat('☁️ 저장 실패: '+e.message,1));
-};
-$('#ghOwner').value=SYNC.owner||'';$('#ghRepo').value=SYNC.repo||'';
-$('#ghPath').value=SYNC.path||'prodcal-data.json';$('#ghToken').value=SYNC.token||'';
+function initFB(){
+  if(!FB_ON){setStat('💾 로컬 모드 — 이 기기에만 저장 (공유하려면 설정 탭의 Firebase 안내 참고)');return}
+  firebase.initializeApp(firebaseConfig);
+  const auth=firebase.auth();
+  const gate=document.getElementById('authGate');
+  gate.style.display='flex';
+  $('#fbLoginBtn').onclick=()=>{
+    $('#authErr').textContent='';
+    auth.signInWithPopup(new firebase.auth.GoogleAuthProvider())
+      .catch(e=>{$('#authErr').textContent='로그인 실패: '+e.message});
+  };
+  $('#logoutBtn').onclick=()=>auth.signOut();
+  auth.onAuthStateChanged(u=>{
+    if(u&&(u.email||'').toLowerCase().endsWith('@'+ALLOWED_DOMAIN)){
+      gate.style.display='none';
+      $('#userBadge').textContent='👤 '+u.email;
+      $('#logoutBtn').style.display='';
+      if(!FBdoc)startSync();
+    }else if(u){
+      $('#authErr').textContent='@'+ALLOWED_DOMAIN+' 계정만 사용할 수 있어요. ('+(u.email||'')+')';
+      auth.signOut();
+    }else{
+      gate.style.display='flex';
+      $('#userBadge').textContent='';
+      $('#logoutBtn').style.display='none';
+    }
+  });
+}
 
 $('#todayLabel').textContent=`오늘: ${kdate(today)}`;
 render();
-if(syncReady())pullRemote(false);
+initFB();
 </script>
 </body>
 </html>
