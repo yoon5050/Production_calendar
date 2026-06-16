@@ -528,10 +528,11 @@ function ENS(d){
   return d;
 }
 let applyingRemote=false; /* 서버 데이터 적용 중에는 재업로드 금지 (기기 간 핑퐁 방지) */
+let syncBooting=false;    /* 서버 첫 동기화 전에는 업로드/시각변경 금지 (빈 데이터로 덮어쓰기 방지) */
 const save=()=>{
-  if(!applyingRemote)S.updatedAt=Date.now();
+  if(!applyingRemote&&!syncBooting)S.updatedAt=Date.now();
   localStorage.setItem(KEY,JSON.stringify(S));
-  if(!applyingRemote)scheduleSync();
+  if(!applyingRemote&&!syncBooting)scheduleSync();
 };
 
 const today=fmt(new Date());
@@ -1442,7 +1443,10 @@ $('#importFile').onchange=e=>{
   const file=e.target.files[0];if(!file)return;
   const rd=new FileReader();
   rd.onload=()=>{try{const d=JSON.parse(rd.result);if(!d.settings)throw 0;
-    S=ENS(d);render();alert('불러오기 완료')}catch(err){alert('백업 파일을 읽을 수 없습니다')}};
+    S=ENS(d);S.updatedAt=Date.now();render();
+    if(FBdoc){syncBooting=false;pushNow().then(()=>alert('불러오기 완료 — 서버에도 저장했어요')).catch(()=>alert('불러오기 완료 (서버 저장 실패, 다시 시도해 주세요)'));}
+    else alert('불러오기 완료');
+    }catch(err){alert('백업 파일을 읽을 수 없습니다')}};
   rd.readAsText(file);
 };
 $('#resetBtn').onclick=()=>{if(confirm('모든 데이터가 삭제되고 기본 배합비로 초기화됩니다. 진행할까요?')){localStorage.removeItem(KEY);location.reload()}};
@@ -1453,34 +1457,60 @@ function setStat(t,err){
   const el=$('#syncStat');if(el){el.textContent=t;el.style.color=err?'var(--red)':'var(--sub)'}
   const g=$('#fbInfo');if(g){g.textContent=t;g.style.color=err?'var(--red)':'var(--sub)'}
 }
+let FBdb=null,lastBackupDay='';
+function pushNow(){
+  if(!FBdoc)return Promise.resolve();
+  const payload={updatedAt:S.updatedAt||Date.now(),json:JSON.stringify(S)};
+  const day=fmt(new Date());
+  const tasks=[FBdoc.set(payload)];
+  if(day!==lastBackupDay){ /* 하루 1회 자동 백업본 (실수 복구용) */
+    lastBackupDay=day;
+    tasks.push(FBdb.collection('prodcal').doc('backup-'+day).set(payload).catch(()=>{}));
+  }
+  return Promise.all(tasks);
+}
 function scheduleSync(){
-  if(!FBdoc)return;
+  if(!FBdoc||syncBooting)return;
   clearTimeout(FBtimer);
   setStat('☁️ 저장 대기…');
   FBtimer=setTimeout(()=>{
-    FBdoc.set({updatedAt:S.updatedAt||Date.now(),json:JSON.stringify(S)})
+    pushNow()
       .then(()=>setStat('☁️ 저장됨 '+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})))
       .catch(e=>setStat('☁️ 저장 실패: '+e.message,1));
   },1500);
 }
 function startSync(){
-  const db=firebase.firestore();
-  try{db.enablePersistence({synchronizeTabs:true}).catch(()=>{})}catch(e){}
-  FBdoc=db.collection('prodcal').doc('data');
+  FBdb=firebase.firestore();
+  try{FBdb.enablePersistence({synchronizeTabs:true}).catch(()=>{})}catch(e){}
+  FBdoc=FBdb.collection('prodcal').doc('data');
+  syncBooting=true; /* 첫 서버 응답을 받기 전엔 절대 업로드하지 않음 */
+  let firstSnap=true;
   FBdoc.onSnapshot(snap=>{
-    if(!snap.exists){scheduleSync();return} /* 첫 사용: 현재 데이터 업로드 */
     if(snap.metadata.hasPendingWrites)return; /* 내가 방금 쓴 것 */
-    const d=snap.data();
-    if((d.updatedAt||0)>(S.updatedAt||0)){
-      try{
-        applyingRemote=true;
-        S=ENS(JSON.parse(d.json));
-        S.updatedAt=d.updatedAt;
-        render();
-      }catch(e){}finally{applyingRemote=false}
+    const d=snap.exists?snap.data():null;
+    if(firstSnap){
+      firstSnap=false;
+      if(d&&d.json){
+        /* 서버에 데이터가 있으면: 더 최신인 쪽 채택 (이 기기가 더 최신이면 유지 후 업로드) */
+        if((d.updatedAt||0)>=(S.updatedAt||0)){
+          try{applyingRemote=true;S=ENS(JSON.parse(d.json));S.updatedAt=d.updatedAt;render()}catch(e){}finally{applyingRemote=false}
+          syncBooting=false;
+          setStat('☁️ 동기화됨 '+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}));
+        }else{
+          syncBooting=false;scheduleSync(); /* 이 기기 데이터가 더 최신 → 서버 갱신 */
+        }
+      }else{
+        /* 서버가 비어있는 최초 1회 → 현재 데이터 업로드 */
+        syncBooting=false;scheduleSync();
+      }
+      return;
     }
-    setStat('☁️ 동기화됨 '+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}));
-  },e=>setStat('☁️ 연결 오류: '+e.message,1));
+    /* 이후 실시간 갱신: 더 최신일 때만 적용 */
+    if(d&&d.json&&(d.updatedAt||0)>(S.updatedAt||0)){
+      try{applyingRemote=true;S=ENS(JSON.parse(d.json));S.updatedAt=d.updatedAt;render()}catch(e){}finally{applyingRemote=false}
+      setStat('☁️ 동기화됨 '+new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}));
+    }
+  },e=>{syncBooting=false;setStat('☁️ 연결 오류: '+e.message,1)});
 }
 function initFB(){
   if(!FB_ON){setStat('💾 로컬 모드 — 이 기기에만 저장 (공유하려면 설정 탭의 Firebase 안내 참고)');return}
@@ -1512,6 +1542,7 @@ function initFB(){
 }
 
 $('#todayLabel').textContent=`오늘: ${kdate(today)}`;
+if(FB_ON)syncBooting=true; /* Firebase 사용 시: 서버 첫 응답 전까지 업로드/시각변경 차단 */
 render();
 initFB();
 </script>
