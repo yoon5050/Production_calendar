@@ -149,7 +149,15 @@ table.hist th,table.hist td{padding:5px 14px}
   올바른 예: window.FIREBASE_CONFIG={apiKey:"AIza...",authDomain:"xxx.firebaseapp.com",projectId:"xxx",storageBucket:"xxx.appspot.com",messagingSenderId:"123",appId:"1:123:web:abc"};
 ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲ -->
 <script>
-window.FIREBASE_CONFIG={apiKey:"PASTE_YOUR_CONFIG_HERE"};
+window.FIREBASE_CONFIG={
+  apiKey: "AIzaSyBjixmsGkOE5Eh7c2L-jDv9Mms2ObvHHwM",
+  authDomain: "production-calendar-program.firebaseapp.com",
+  projectId: "production-calendar-program",
+  storageBucket: "production-calendar-program.firebasestorage.app",
+  messagingSenderId: "489945378189",
+  appId: "1:489945378189:web:8d019c4cf8cacc179221c4",
+  measurementId: "G-PHJK1H75GZ"
+};
 </script>
 </head>
 <body>
@@ -296,16 +304,17 @@ window.FIREBASE_CONFIG={apiKey:"PASTE_YOUR_CONFIG_HERE"};
       <div id="colorStockList"></div>
       <div class="addform">
         <div class="ln">
-          <span style="font-size:12px;color:var(--sub)">현재 보유 직접 입력 →</span>
+          <span style="font-size:12px;color:var(--sub)">재고 입력 →</span>
           <select id="csProd"></select>
           <select id="csColor"></select>
-          <input type="number" id="csBags" placeholder="보유 포대" min="0" step="1" style="width:90px">
+          <input type="number" id="csBags" placeholder="포대" min="0" step="1" style="width:70px">
+          <label class="fl" style="flex-direction:row;align-items:center;gap:4px">입고일<input type="date" id="csDate"></label>
           <button class="btn pri" id="csAdd">재고 반영</button>
         </div>
       </div>
-      <p class="hint">춘천에서 색상 배합 포대(10kg)로 입고되는 기준의 재고예요. 현재 보유 포대를 직접 입력하면 오늘 날짜로 반영되고,
-      이후 <b>생산 기록</b>만큼 자동 차감됩니다. 이력 탭에서 <b>배합 발주를 확정</b>하면 입고 예정이 여기에 자동으로 더해지고,
-      입고일이 지나면 보유 재고에 합산돼요.</p>
+      <p class="hint">춘천에서 색상 배합 포대(10kg)로 입고되는 기준의 재고예요. 포대 수와 입고일을 입력하면 그 날짜로 반영되고(비워두면 오늘),
+      <b>입고일이 미래면 '입고 예정'</b>으로, 지나면 보유 재고에 합산됩니다. 이후 <b>생산 기록</b>만큼 자동 차감돼요.
+      같은 색상에 다시 입력하면 이전 직접 입력분은 교체됩니다.</p>
     </div>
     <div class="card">
       <h2 class="sec">파우더 재고</h2>
@@ -314,6 +323,7 @@ window.FIREBASE_CONFIG={apiKey:"PASTE_YOUR_CONFIG_HERE"};
         <div class="ln">
           <input type="text" id="fName" placeholder="파우더명 (예: 성형 파우더)">
           <input type="number" id="fStock" placeholder="보유 재고 kg" step="0.1" min="0">
+          <label class="fl" style="flex-direction:row;align-items:center;gap:4px">입고일<input type="date" id="fDate"></label>
           <button class="btn pri" id="addFlake">파우더 추가</button>
         </div>
       </div>
@@ -363,11 +373,20 @@ window.FIREBASE_CONFIG={apiKey:"PASTE_YOUR_CONFIG_HERE"};
       </div>
       <h2 class="sec" style="margin-top:18px">☁️ 실시간 공유 (Firebase) — 모든 기기에서 같은 데이터</h2>
       <p class="hint" id="fbInfo"></p>
-      <p class="hint">설정 방법(최초 1회, 무료): ① console.firebase.google.com에서 프로젝트 생성 →
+      <div style="border:1px solid var(--line);border-radius:8px;padding:12px;background:#fafbfc">
+        <div style="font-weight:700;font-size:13px;margin-bottom:6px">🔑 Firebase 설정 붙여넣기 (이 칸이 제일 쉬워요)</div>
+        <textarea id="fbCfgInput" rows="6" style="width:100%;font-family:monospace;font-size:12px" placeholder='파이어베이스 콘솔의 firebaseConfig를 통째로 붙여넣으세요. 예:&#10;const firebaseConfig = {&#10;  apiKey: "AIza...",&#10;  authDomain: "xxx.firebaseapp.com",&#10;  projectId: "xxx",&#10;  ...&#10;};'></textarea>
+        <div class="toolbar" style="margin-top:8px">
+          <button class="btn pri" id="fbCfgSave">설정 저장 후 새로고침</button>
+          <button class="btn" id="fbCfgClear">설정 지우기</button>
+          <span id="fbCfgStat" class="hint"></span>
+        </div>
+        <p class="hint">여기에 한 번 저장하면 이 브라우저(기기)에 기억돼서, 앞으로 새 파일로 바꿔도 다시 입력할 필요 없어요.
+        붙여넣을 때 <code>&lt;script&gt;</code> 줄이 섞여 있어도 자동으로 걸러냅니다.</p>
+      </div>
+      <p class="hint" style="margin-top:8px">필요 사전 작업(최초 1회, 무료): ① console.firebase.google.com에서 프로젝트 생성 →
       ② Authentication에서 Google 로그인 사용 설정 → ③ Firestore 데이터베이스 생성(서울) + 규칙에 @lowlit.co 제한 게시 →
-      ④ 프로젝트 설정에서 firebaseConfig의 <b>{ } 중괄호 부분만</b> 복사 → ⑤ 이 HTML 파일 위쪽의
-      <b>"Firebase 설정 붙여넣는 곳"</b> 표시에서 교체 (⚠️ &lt;script&gt; 태그까지 복사하면 화면이 깨져요!) →
-      ⑥ 배포 주소를 승인된 도메인에 추가. 파일 안 주석에 같은 내용이 단계별로 적혀 있어요.</p>
+      ④ 프로젝트 설정에서 firebaseConfig 복사 → 위 칸에 붙여넣고 저장 → ⑤ 배포 주소를 Authentication 승인된 도메인에 추가.</p>
       <h2 class="sec" style="margin-top:18px">데이터 백업</h2>
       <div class="toolbar">
         <button class="btn" id="exportBtn">⬇ 백업 저장 (JSON)</button>
@@ -402,13 +421,22 @@ window.FIREBASE_CONFIG={apiKey:"PASTE_YOUR_CONFIG_HERE"};
       window.FIREBASE_CONFIG = { ... } 의 중괄호 부분만 교체 (script 태그는 복사 금지!)
    6) 배포 후 Authentication → Settings → 승인된 도메인에 배포 주소 추가 (예: xxx.vercel.app)
    ※ 교체 전에는 로그인 없이 '이 기기에만 저장'되는 로컬 모드로 동작합니다. */
-const firebaseConfig=window.FIREBASE_CONFIG||{apiKey: "AIzaSyBjixmsGkOE5Eh7c2L-jDv9Mms2ObvHHwM",
-  authDomain: "production-calendar-program.firebaseapp.com",
-  projectId: "production-calendar-program",
-  storageBucket: "production-calendar-program.firebasestorage.app",
-  messagingSenderId: "489945378189",
-  appId: "1:489945378189:web:8d019c4cf8cacc179221c4",
-  measurementId: "G-PHJK1H75GZ"};
+/* config 해석: ① 파일에 박힌 값 → ② 이 브라우저에 저장해둔 값(파일 바꿔도 유지) 순으로 사용 */
+function resolveFBConfig(){
+  const fromFile=window.FIREBASE_CONFIG;
+  if(fromFile&&fromFile.apiKey&&fromFile.apiKey!=='PASTE_YOUR_CONFIG_HERE')return fromFile;
+  try{const raw=localStorage.getItem('prodcal_fbcfg');if(raw){const c=JSON.parse(raw);if(c&&c.apiKey)return c}}catch(e){}
+  return {apiKey:'PASTE_YOUR_CONFIG_HERE'};
+}
+/* 붙여넣은 텍스트에서 {…} 객체만 뽑아 파싱 (const firebaseConfig=… , 따옴표 차이 허용) */
+function parseFBConfig(text){
+  let t=(text||'').trim();
+  const i=t.indexOf('{'),j=t.lastIndexOf('}');
+  if(i<0||j<0)return null;
+  t=t.slice(i,j+1);
+  try{return (new Function('return ('+t+')'))()}catch(e){return null}
+}
+const firebaseConfig=resolveFBConfig();
 const ALLOWED_DOMAIN='lowlit.co';
 const FB_ON=typeof firebase!=='undefined'&&firebaseConfig.apiKey&&firebaseConfig.apiKey!=='PASTE_YOUR_CONFIG_HERE';
 
@@ -581,7 +609,8 @@ const autoConsumed=(fid,fcDays,after,upto)=>{let t=0;const pw=powderId();
   return t};
 const projStock=(f,date,fcDays)=>{
   if(!f.stockDate&&!S.inbounds.some(b=>b.fid===f.id))return kg1(f.stock||0);
-  return kg1((f.stock||0)-consumedBetween(f.id,f.stockDate,date)+inboundBetween(f.id,f.stockDate,date)
+  const base=(!f.stockDate||f.stockDate<=date)?(f.stock||0):0; /* 미래 입고일이면 그 전엔 미반영 */
+  return kg1(base-consumedBetween(f.id,f.stockDate,date)+inboundBetween(f.id,f.stockDate,date)
     -(fcDays?autoConsumed(f.id,fcDays,null,date):0));
 };
 const stockNow=f=>projStock(f,today);
@@ -599,12 +628,12 @@ const trackedColors=()=>{ /* 입고가 있거나 진행 중 발주에 있는 색
   S.orders.filter(o=>!o.done).forEach(o=>set.set(o.pid+'|'+o.cid,{pid:o.pid,cid:o.cid}));
   return [...set.values()].filter(x=>colorOf(prodOf(x.pid),x.cid));
 };
-/* 현재 보유 재고 직접 입력 → 오늘 날짜 baseline 입고로 저장(재입력 시 교체) */
-function setColorStockBags(pid,cid,bags){
+/* 현재 보유 재고 직접 입력 → baseline 입고로 저장(재입력 시 교체) */
+function setColorStockBags(pid,cid,bags,date){
   const id='manual-'+pid+'-'+cid;
   S.inbounds=S.inbounds.filter(b=>b.batchId!==id);
   const kg=Math.max(0,bags)*sackKg();
-  if(kg>0)S.inbounds.push({id:uid(),pid,cid,date:today,kg,batchId:id});
+  if(kg>0)S.inbounds.push({id:uid(),pid,cid,date:date||today,kg,batchId:id});
 }
 const manualBags=(pid,cid)=>{const id='manual-'+pid+'-'+cid;const b=S.inbounds.find(x=>x.batchId===id);return b?Math.round(b.kg/sackKg()):''};
 const coLine=()=>{const c=S.settings.co||{};return [c.name,c.person&&'담당 '+c.person,c.phone,c.email].filter(Boolean).join(' · ')};
@@ -1021,30 +1050,33 @@ function renderFlakes(){
       const fut=kg1(S.inbounds.filter(b=>b.pid===x.pid&&b.cid===x.cid&&b.date>today).reduce((a,b)=>a+b.kg,0));
       const after=colorStock(x.pid,x.cid,'9999-12-31',fcD);
       const mb=manualBags(x.pid,x.cid);
+      const mId='manual-'+x.pid+'-'+x.cid;const mInb=S.inbounds.find(b=>b.batchId===mId);
       return `<tr><td><b>${esc(nameOf(x.pid,x.cid))}</b></td>
       <td class="r"><b style="${now<0?'color:var(--red)':''}">${now}kg</b> <span style="color:var(--sub)">(${bagTxt(now)})</span>${now<0?' ⚠️':''}</td>
       <td class="r">${fut?`<span style="color:var(--amber);font-weight:700">+${fut}kg (${bagTxt(fut)})</span>`:'-'}</td>
       <td class="r"><b style="${after<0?'color:var(--red)':''}">${after}kg</b> <span style="color:var(--sub)">(${bagTxt(after)})</span>${after<0?' ⚠️ 부족':''}</td>
-      <td>${mb!==''?`<button class="btn sm" data-csedit="${x.pid}|${x.cid}">보유 ${mb}포대</button>`:''}</td></tr>`}).join('')+'</table>'
+      <td style="white-space:nowrap">${mb!==''?`<button class="btn sm" data-csedit="${x.pid}|${x.cid}">보유 ${mb}포대${mInb?' · '+kdate(mInb.date):''}</button> <button class="btn sm danger" data-csdel="${x.pid}|${x.cid}">삭제</button>`:''}</td></tr>`}).join('')+'</table>'
     :'<p class="hint">진행 중인 생산 발주나 입고가 있으면 색상별 재고가 표시됩니다. 아래에서 현재 보유 포대를 직접 입력할 수도 있어요.</p>';
   /* 직접 입력 드롭다운 */
   $('#csProd').innerHTML=S.products.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')||'<option value="">제품 없음</option>';
   const csSync=()=>{const p=prodOf($('#csProd').value);$('#csColor').innerHTML=p?p.colors.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join(''):''};
   csSync();$('#csProd').onchange=csSync;
-  document.querySelectorAll('[data-csedit]').forEach(b=>b.onclick=()=>{const[pid,cid]=b.dataset.csedit.split('|');$('#csProd').value=pid;csSync();$('#csColor').value=cid;$('#csBags').focus()});
+  document.querySelectorAll('[data-csedit]').forEach(b=>b.onclick=()=>{const[pid,cid]=b.dataset.csedit.split('|');$('#csProd').value=pid;csSync();$('#csColor').value=cid;const mInb=S.inbounds.find(x=>x.batchId==='manual-'+pid+'-'+cid);if(mInb){$('#csBags').value=Math.round(mInb.kg/sackKg());$('#csDate').value=mInb.date}$('#csBags').focus()});
+  document.querySelectorAll('[data-csdel]').forEach(b=>b.onclick=()=>{const[pid,cid]=b.dataset.csdel.split('|');if(confirm('이 색상의 직접 입력 재고를 삭제할까요?')){S.inbounds=S.inbounds.filter(x=>x.batchId!=='manual-'+pid+'-'+cid);render()}});
 
   /* ── 파우더 재고 ── */
   const powders=S.flakes.filter(f=>f.kind==='powder');
-  $('#powderList').innerHTML=powders.length?`<table class="t"><tr><th>파우더</th><th class="r">보유 재고(kg)</th><th>기준일</th><th class="r">현재 예상</th><th class="r">생산 후 예상</th><th></th></tr>`
+  $('#powderList').innerHTML=powders.length?`<table class="t"><tr><th>파우더</th><th class="r">보유 재고(kg)</th><th>입고일/기준일</th><th class="r">현재 예상</th><th class="r">생산 후 예상</th><th></th></tr>`
     +powders.map(f=>{const now=stockNow(f);const after=projStock(f,'9999-12-31',fcD);
       return `<tr><td>${esc(f.name)}</td>
       <td class="r"><input type="number" data-fstock="${f.id}" value="${f.stock||''}" step="0.1" min="0" style="width:84px"></td>
-      <td style="font-size:12px;color:var(--sub)">${f.stockDate?kdate(f.stockDate):'-'}</td>
+      <td><input type="date" data-fdate="${f.id}" value="${f.stockDate||''}" style="font-size:12px"></td>
       <td class="r"><b style="${now<0?'color:var(--red)':''}">${now}kg</b></td>
       <td class="r"><b style="${after<0?'color:var(--red)':''}">${after}kg</b>${after<0?' ⚠️':''}</td>
       <td><button class="btn sm danger" data-fx="${f.id}">삭제</button></td></tr>`}).join('')+'</table>'
     :'<p class="hint">파우더를 추가하세요.</p>';
-  document.querySelectorAll('[data-fstock]').forEach(i=>i.onchange=()=>{const f=flakeOf(i.dataset.fstock);f.stock=Math.max(0,+i.value||0);f.stockDate=today;render()});
+  document.querySelectorAll('[data-fstock]').forEach(i=>i.onchange=()=>{const f=flakeOf(i.dataset.fstock);f.stock=Math.max(0,+i.value||0);if(!f.stockDate)f.stockDate=today;render()});
+  document.querySelectorAll('[data-fdate]').forEach(i=>i.onchange=()=>{flakeOf(i.dataset.fdate).stockDate=i.value||null;render()});
   document.querySelectorAll('[data-fx]').forEach(b=>b.onclick=()=>{
     if(b.dataset.fx===powderId()&&S.products.some(p=>p.colors.some(c=>c.powderKg>0))){alert('배합에 사용 중인 파우더는 삭제할 수 없어요.');return}
     if(confirm('삭제할까요?')){S.flakes=S.flakes.filter(f=>f.id!==b.dataset.fx);render()}
@@ -1444,12 +1476,12 @@ $('#addOrder').onclick=()=>{
 };
 $('#addFlake').onclick=()=>{const v=$('#fName').value.trim();if(!v)return;
   const st=Math.max(0,+$('#fStock').value||0);
-  S.flakes.push({id:uid(),name:v,kind:'powder',supId:'',stock:st,stockDate:st?today:null});
-  $('#fName').value='';$('#fStock').value='';render()};
+  S.flakes.push({id:uid(),name:v,kind:'powder',supId:'',stock:st,stockDate:($('#fDate').value||(st?today:null))});
+  $('#fName').value='';$('#fStock').value='';$('#fDate').value='';render()};
 $('#csAdd').onclick=()=>{
   const pid=$('#csProd').value,cid=$('#csColor').value,bags=Math.max(0,Math.round(+$('#csBags').value||0));
   if(!pid||!cid){alert('제품·색상을 선택해 주세요');return}
-  setColorStockBags(pid,cid,bags);$('#csBags').value='';render();
+  setColorStockBags(pid,cid,bags,$('#csDate').value||today);$('#csBags').value='';$('#csDate').value='';render();
 };
 $('#addSup').onclick=()=>{const v=$('#sName').value.trim();if(!v)return;
   S.suppliers.push({id:uid(),name:v,person:$('#sPerson').value.trim(),phone:$('#sPhone').value.trim(),type:$('#sType').value});
@@ -1578,6 +1610,22 @@ function initFB(){
       $('#logoutBtn').style.display='none';
     }
   });
+}
+
+/* Firebase 설정 붙여넣기 (브라우저에 저장 → 파일 교체해도 유지) */
+if($('#fbCfgInput')){
+  const saved=(()=>{try{return localStorage.getItem('prodcal_fbcfg')}catch(e){return null}})();
+  if(saved){try{const c=JSON.parse(saved);$('#fbCfgInput').value=JSON.stringify(c,null,2)}catch(e){}}
+  const cfgStat=(t,err)=>{const el=$('#fbCfgStat');if(el){el.textContent=t;el.style.color=err?'var(--red)':'var(--green)'}};
+  if(FB_ON)cfgStat('✅ 연결됨');else if(window.FIREBASE_CONFIG&&window.FIREBASE_CONFIG.apiKey!=='PASTE_YOUR_CONFIG_HERE')cfgStat('파일 설정 사용 중');
+  $('#fbCfgSave').onclick=()=>{
+    const c=parseFBConfig($('#fbCfgInput').value);
+    if(!c||!c.apiKey){cfgStat('설정을 읽을 수 없어요. firebaseConfig 전체를 붙여넣어 주세요.',1);return}
+    localStorage.setItem('prodcal_fbcfg',JSON.stringify(c));
+    cfgStat('저장됨 — 새로고침합니다…');
+    setTimeout(()=>location.reload(),600);
+  };
+  $('#fbCfgClear').onclick=()=>{if(confirm('저장된 Firebase 설정을 지울까요? (로컬 모드로 돌아갑니다)')){localStorage.removeItem('prodcal_fbcfg');location.reload()}};
 }
 
 $('#todayLabel').textContent=`오늘: ${kdate(today)}`;
