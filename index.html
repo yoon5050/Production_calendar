@@ -124,11 +124,15 @@ table.hist th,table.hist td{padding:5px 14px}
 .hint{font-size:12px;color:var(--sub);margin-top:6px;line-height:1.7}
 .toolbar{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;align-items:center}
 
+.rnote{font-size:10px;font-weight:700;color:var(--green)}
+.rnote.miss{color:var(--amber);opacity:.8}
+#syncBanner{display:none;background:var(--red);color:#fff;padding:8px 14px;font-size:13px;font-weight:700;text-align:center;position:sticky;top:0;z-index:100}
 #printSheet{display:none}
 @media print{
+  body{background:#fff}
   body *{visibility:hidden}
   #printSheet,#printSheet *{visibility:visible}
-  #printSheet{display:block;position:absolute;left:0;top:0;width:100%;padding:24px;font-size:12px}
+  #printSheet{display:block;position:absolute;left:0;top:0;width:100%;padding:24px;font-size:12px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
   #printSheet h1{font-size:19px;margin-bottom:4px}
   #printSheet h2{font-size:15px;margin:16px 0 6px}
   #printSheet .sub{color:#555;margin-bottom:10px}
@@ -136,7 +140,30 @@ table.hist th,table.hist td{padding:5px 14px}
   #printSheet th,#printSheet td{border:1px solid #999;padding:6px 8px;text-align:left}
   #printSheet th{background:#f0f0f0}
 }
-@media(max-width:760px){.cal-wrap{min-width:0}}
+@media(max-width:760px){
+  .cal-wrap{min-width:0}
+  main{padding:10px 8px 60px}
+  header{padding:10px 12px;gap:8px}
+  header h1{font-size:16px}
+  .tabs{margin-left:0;width:100%;flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:2px}
+  .tabs button{white-space:nowrap;padding:8px 10px}
+  .cal{gap:3px}
+  .cal-head{flex-wrap:wrap;gap:6px}
+  .cal-head h2{min-width:0}
+  .day{min-height:62px;padding:3px;gap:2px;border-radius:6px}
+  .day .amt{font-size:9.5px;padding:1px 3px}
+  .day .num{font-size:11px;width:17px;height:17px}
+  .day .cum,.rnote{font-size:9px}
+  .panel{min-width:0;width:100%;flex-basis:100%}
+  .card{overflow-x:auto}
+  .stats{grid-template-columns:repeat(2,1fr)}
+  .stat .v{font-size:17px}
+  input,select,textarea{font-size:15px}
+  .btn{padding:8px 12px}
+  table.hist{min-width:0}
+  .order{flex-wrap:wrap}
+  .addform .ln{gap:8px}
+}
 </style>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
@@ -185,6 +212,7 @@ window.FIREBASE_CONFIG={
     <button data-tab="settings">설정·백업</button>
   </nav>
 </header>
+<div id="syncBanner"></div>
 <main>
   <div class="stats" id="stats"></div>
 
@@ -198,12 +226,13 @@ window.FIREBASE_CONFIG={
           <button class="btn" id="goToday">오늘</button>
           <button class="btn" id="stockViewBtn">📊 예상 재고</button>
           <button class="btn" id="rangeBtn">📅 기간 생산</button>
+          <button class="btn" id="dailyLogBtn">🖨 생산일지 양식</button>
         </div>
         <div id="stockView"></div>
         <div id="rangeView"></div>
         <div class="cal" id="cal"></div>
         <p class="hint" id="calNotice" style="color:var(--red);font-weight:700"></p>
-        <p class="hint">날짜 클릭 → 오른쪽에서 생산 수량 입력·휴무 지정. 초록=오늘까지 생산분, 파랑=직접 입력한 예정, <span style="color:var(--blue)">파란 점선=생산 발주에 따른 자동 예정</span>, 주황=자재 입고.</p>
+        <p class="hint">날짜 클릭 → 오른쪽 패널에서 생산 기록 입력·연구노트 체크·휴무 지정. 초록=오늘까지 생산분, 파랑=직접 입력한 예정, <span style="color:var(--blue)">파란 점선=생산 발주에 따른 자동 예정</span>, 주황=자재 입고, 📓=연구노트 작성 여부.</p>
       </div>
       <div class="panel card" id="dayPanel"></div>
     </div>
@@ -213,6 +242,8 @@ window.FIREBASE_CONFIG={
     <div class="toolbar">
       <button class="btn pri" id="copyOrders">📋 텍스트 복사 (공장 전달)</button>
       <button class="btn" id="printOrders">🖨 생산 요청서 인쇄</button>
+      <button class="btn" id="dailyLogBtn2">🖨 생산일지 양식</button>
+      <label style="display:flex;gap:5px;align-items:center;font-size:13px" title="생산 요청서에 인쇄되는 주문번호 (발주 마감 시 자동으로 다음 번호로 넘어갑니다)">주문번호 <input type="text" id="reqNo" style="width:130px"></label>
       <label style="display:flex;gap:5px;align-items:center;font-size:13px" title="플레이크 입고일에 맞춰 생산 시작일을 지정하면 예정 일정이 그날부터 계산됩니다">생산 시작일 <input type="date" id="prodStart"></label>
       <button class="btn" id="archiveBtn" style="margin-left:auto">🗂 발주 마감 → 이력 보관 후 새로 시작</button>
     </div>
@@ -243,6 +274,7 @@ window.FIREBASE_CONFIG={
       </label>
       <label style="display:flex;gap:5px;align-items:center;font-size:13px"><input type="checkbox" id="poStock" checked>현재 재고 차감 (부족분만 발주)</label>
       <label style="display:flex;gap:5px;align-items:center;font-size:13px">희망 입고일 <input type="date" id="poDue"></label>
+      <label style="display:flex;gap:5px;align-items:center;font-size:13px" title="발주서에 인쇄되는 발주번호 (발주 마감 시 자동으로 다음 번호로 넘어갑니다)">발주번호 <input type="text" id="poNo" style="width:130px"></label>
       <button class="btn" id="printPO">🖨 발주서 전체 인쇄</button>
     </div>
     <p class="hint" style="margin:-4px 0 10px">♻️ 이 탭은 <b>재료(플레이크·파우더)를 자재 업체에 주문</b>하는 곳이에요. 생산 공장에 보내는 제작 요청은 <b>생산 발주 🏭</b> 탭에서.<br>
@@ -520,6 +552,9 @@ S.settings.prodStart=S.settings.prodStart||'';
 S.dayMemos=S.dayMemos||{};
 S.workdays=S.workdays||[];
 S.poBatches=S.poBatches||[];
+S.research=S.research||{}; /* 날짜별 연구노트 작성 체크 */
+S.settings.docNoReq=S.settings.docNoReq||'';
+S.settings.docNoPo=S.settings.docNoPo||'';
 /* 색상(배합) 단위 입고로 전환 — 예전 플레이크 단위 발주 확정분은 정리 */
 {const legacy=S.poBatches.filter(b=>(b.items||[]).some(it=>it.fid&&!it.pid));
  if(legacy.length){
@@ -556,7 +591,7 @@ S.ver=4;
 /* 데이터 형태 보정 (가져오기/동기화 공용) */
 function ENS(d){
   d.inbounds=d.inbounds||[];d.tests=d.tests||[];d.suppliers=d.suppliers||[];d.history=d.history||[];
-  d.workdays=d.workdays||[];d.poBatches=d.poBatches||[];d.dayMemos=d.dayMemos||{};
+  d.workdays=d.workdays||[];d.poBatches=d.poBatches||[];d.dayMemos=d.dayMemos||{};d.research=d.research||{};
   d.settings=d.settings||{};
   d.settings.co=Object.assign({},CO_DEF,d.settings.co||{});
   d.settings.factory=d.settings.factory||{name:'',person:'',phone:''};
@@ -808,6 +843,7 @@ function renderCal(){
     const cls=['day',out?'out':'',ds===today?'today':'',ds===selDate?'sel':'',d.getDay()===0?'sun':'',isOff(ds)?'off':''].join(' ');
     h+=`<div class="${cls}" data-d="${ds}"><div class="num">${d.getDate()}</div>`
       +(isOff(ds)?'<div class="off-tag">휴무</div>':'')
+      +(S.research[ds]?'<div class="rnote">📓 연구노트 ✓</div>':(ds<=today&&dayRecs.length?'<div class="rnote miss">📓 미작성</div>':''))
       +lines
       +(S.dayMemos[ds]?'<div class="cum">📝 메모</div>':'')
       +'</div>';
@@ -828,11 +864,16 @@ function renderPanel(){
   const holBtn=isOff(selDate)
     ?'<button class="btn sm" id="holBtn">휴무 해제</button>'
     :'<button class="btn sm danger" id="holBtn">휴무 지정</button>';
-  let h=`<h3>${kdate(selDate)} ${holBtn}</h3>`;
+  const rn=!!S.research[selDate];
+  let h=`<h3>${kdate(selDate)} ${holBtn}</h3>
+  <div style="margin:2px 0 8px"><button class="btn sm" id="rnBtn" style="${rn?'background:var(--green-l);border-color:var(--green);color:var(--green);font-weight:700':''}">📓 연구노트 ${rn?'작성 완료 ✓':'작성 체크'}</button></div>`;
   const autoRecs=selDate>=today?(confirmedDays().get(selDate)||[]):[];
   h+=recs.map(r=>`<div class="rec"><span class="tag ${selDate<=today?'act':'plan'}">${selDate<=today?'생산':'예정'}</span>${esc(nameOf(r.pid,r.cid))} <b>${r.qty}개</b><button class="x" data-id="${r.id}">✕</button></div>`).join('');
   h+=autoRecs.map(a=>`<div class="rec"><span class="tag auto">자동예정</span>${esc(nameOf(a.pid,a.cid))} <b>${a.qty}개</b></div>`).join('');
   if(!recs.length&&!autoRecs.length)h+='<p class="hint">기록 없음</p>';
+  /* 생산 기록 바로 입력 */
+  h+=`<div class="addform"><b style="font-size:12px;color:var(--sub)">➕ ${selDate<=today?'생산 기록':'생산 예정'} 입력</b>
+    <div class="ln"><select id="dpProd" style="max-width:130px"></select><select id="dpColor" style="max-width:130px"></select><input type="number" id="dpQty" placeholder="수량" min="1" style="width:72px"><button class="btn pri sm" id="dpAdd">기록</button></div></div>`;
   /* 날짜 메모 (통화 내용 등) */
   h+=`<div class="addform"><b style="font-size:12px;color:var(--sub)">📝 메모 (통화 내용, 특이사항)</b>
     <textarea id="dMemo" rows="2" style="width:100%;resize:vertical" placeholder="예: 공장 통화 — 다음주 화요일 입고 예정">${esc(S.dayMemos[selDate]||'')}</textarea></div>`;
@@ -854,6 +895,16 @@ function renderPanel(){
   });
   if(stRows.length)h+=`<ul class="cumlist"><b>📦 ${kdate(selDate)} 기준 예상 재고 (배합 포대 단위)</b>${stRows.join('')}</ul>`;
   $('#dayPanel').innerHTML=h;
+  $('#rnBtn').onclick=()=>{if(S.research[selDate])delete S.research[selDate];else S.research[selDate]=true;render()};
+  $('#dpProd').innerHTML=S.products.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')||'<option value="">제품 먼저 등록</option>';
+  const dpSync=()=>{const p=prodOf($('#dpProd').value);$('#dpColor').innerHTML=p?p.colors.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join(''):''};
+  dpSync();$('#dpProd').onchange=dpSync;
+  $('#dpAdd').onclick=()=>{
+    const pid=$('#dpProd').value,cid=$('#dpColor').value,qty=+$('#dpQty').value;
+    if(!pid||!cid){alert('제품·색상을 먼저 등록해 주세요 (제품·배합 탭)');return}
+    if(!qty||qty<1){alert('수량을 입력해 주세요');return}
+    S.records.push({id:uid(),date:selDate,pid,cid,qty});render();
+  };
   $('#holBtn').onclick=()=>{
     if(isOff(selDate)){ /* 해제: 지정 휴무면 제거, 주말 규칙이면 예외(근무일) 등록 */
       const i=S.holidays.indexOf(selDate);
@@ -924,6 +975,8 @@ function renderOrders(){
   $('#oProd').innerHTML=S.products.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')||'<option value="">제품 먼저 등록</option>';
   const sync=()=>{const p=prodOf($('#oProd').value);$('#oColor').innerHTML=p?p.colors.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join(''):''};
   sync();$('#oProd').onchange=sync;
+  if($('#reqNo')&&document.activeElement!==$('#reqNo'))$('#reqNo').value=reqNo();
+  if($('#poNo')&&document.activeElement!==$('#poNo'))$('#poNo').value=poNoV();
 }
 
 function renderPO(){
@@ -960,19 +1013,21 @@ function supText(supId){
   return t;
 }
 const poDueK=()=>$('#poDue')&&$('#poDue').value?kdate($('#poDue').value):'';
-const blendRowsFor=po=>po.blendRows.map(r=>[`${esc(r.p.name)} - ${esc(r.c.name)}`,'포대',String(r.sacks),poDueK(),
-  (r.c.recipe||[]).map(e=>{const f=flakeOf(e.fid);return `${esc(f?f.name:'?')} ${kg1(e.r*sackKg())}kg`}).join(' / ')]);
-const supRowsFor=rows=>rows.map(r=>[esc(r.name)+(r.kind==='powder'?' (파우더)':''),'kg',String(r.orderKg),poDueK(),r.sacks+'포대']);
+const blendRowsFor=(po,due)=>po.blendRows.map(r=>({name:esc(r.p.name),color:esc(r.c.name),spec:'-',unit:'포대',qty:String(r.sacks),due:due||poDueK(),
+  note:(r.c.recipe||[]).map(e=>{const f=flakeOf(e.fid);return `${esc(f?f.name:'?')} ${kg1(e.r*sackKg())}kg`}).join(' / ')}));
+const supRowsFor=rows=>rows.map(r=>({name:esc(r.name)+(r.kind==='powder'?' (파우더)':''),color:'-',spec:'-',unit:'kg',qty:String(r.orderKg),due:poDueK(),note:r.sacks+'포대'}));
 function printBlendSheet(s){
   const po=poData();
   if(!po.blendRows.length){alert('진행 중인 제작 순서가 없습니다.');return}
-  $('#printSheet').innerHTML=officialSheet('발 주 서',supLabel(s),blendRowsFor(po),{noHonorific:true,note:'비고란의 배합은 1포대당 kg 기준입니다.'});
+  $('#printSheet').innerHTML=officialSheet({title:'발 주 서',en:'PURCHASE ORDER',noLabel:'발주번호',docNo:poNoV(),recv:esc(supLabel(s)),
+    greet:'아래와 같이 발주합니다.',rows:blendRowsFor(po),note:'참고) 비고란의 배합은 1포대당 kg 기준입니다.',foot:'발주서'});
   window.print();
 }
 function printSupSheet(supId){
   const po=poData();const need=(po.sups.get(supId)||[]).filter(r=>r.orderKg>0);
   if(!need.length){alert('이 발주처에 발주할 자재가 없습니다.');return}
-  $('#printSheet').innerHTML=officialSheet('발 주 서',supLabel(supOf(supId)),supRowsFor(need),{noHonorific:true});
+  $('#printSheet').innerHTML=officialSheet({title:'발 주 서',en:'PURCHASE ORDER',noLabel:'발주번호',docNo:poNoV(),recv:esc(supLabel(supOf(supId))),
+    greet:'아래와 같이 발주합니다.',rows:supRowsFor(need),foot:'발주서'});
   window.print();
 }
 
@@ -1232,6 +1287,8 @@ function archiveOrders(){
   S.orders=[];
   S.settings.prodConfirmed=false;
   S.settings.activeMatBatchId=''; /* 자재 발주 확정 상태도 새 라운드로 (입고 예정은 유지) */
+  S.settings.docNoReq=bumpNo(reqNo()); /* 주문번호·발주번호 자동 증가 */
+  S.settings.docNoPo=bumpNo(poNoV());
   render();
   alert('이력에 보관했습니다.'+(S.records.length?' 확정됐던 생산 일정은 캘린더에 그대로 남아있어요.':'')+' 새 발주를 시작하세요!');
 }
@@ -1341,14 +1398,15 @@ function renderHistory(){
     const s=S.suppliers.find(x=>x.type==='blend');
     const sk3=sackKg();
     const rows=ab2.items.map(it=>{
-      if(it.pid){const c=colorOf(prodOf(it.pid),it.cid);
-        return [esc(nameOf(it.pid,it.cid)),'포대',String(it.sacks),ab2.due?kdate(ab2.due):'',
-          c?(c.recipe||[]).map(e=>{const f=flakeOf(e.fid);return `${esc(f?f.name:'?')} ${kg1(e.r*sk3)}kg`}).join(' / '):''];
+      if(it.pid){const p=prodOf(it.pid),c=colorOf(p,it.cid);
+        return {name:esc(p?p.name:'?'),color:esc(c?c.name:'?'),spec:'-',unit:'포대',qty:String(it.sacks),due:ab2.due?kdate(ab2.due):'',
+          note:c?(c.recipe||[]).map(e=>{const f=flakeOf(e.fid);return `${esc(f?f.name:'?')} ${kg1(e.r*sk3)}kg`}).join(' / '):''};
       }
       const f=flakeOf(it.fid);
-      return [esc(f?f.name:'?'),'kg',String(it.kg),ab2.due?kdate(ab2.due):'',it.sacks+'포대'];
+      return {name:esc(f?f.name:'?'),color:'-',spec:'-',unit:'kg',qty:String(it.kg),due:ab2.due?kdate(ab2.due):'',note:it.sacks+'포대'};
     });
-    $('#printSheet').innerHTML=officialSheet('발 주 서',supLabel(s),rows,{noHonorific:true,note:'비고란의 배합은 1포대당 kg 기준입니다.'});
+    $('#printSheet').innerHTML=officialSheet({title:'발 주 서',en:'PURCHASE ORDER',noLabel:'발주번호',docNo:poNoV(),recv:esc(supLabel(s)),
+      greet:'아래와 같이 발주합니다.',rows,note:'참고) 비고란의 배합은 1포대당 kg 기준입니다.',foot:'발주서'});
     window.print();
   };
   /* 진행 중 발주 확정 버튼들 */
@@ -1385,32 +1443,87 @@ function renderHistory(){
   };
 }
 
-/* ===== 공식 발주서 양식 ===== */
+/* ===== 공식 문서 양식 (생산요청서 PDF 포맷 기준) ===== */
 const todayK=()=>{const d=new Date();return `${d.getFullYear()}년 ${String(d.getMonth()+1).padStart(2,'0')}월 ${String(d.getDate()).padStart(2,'0')}일`};
-function officialSheet(title,recvName,rows,opts={}){
+const autoNo=p=>`${p}-${new Date().getFullYear()}-001`;
+const reqNo=()=>S.settings.docNoReq||autoNo('CG');
+const poNoV=()=>S.settings.docNoPo||autoNo('CH');
+const bumpNo=s=>/\d+\s*$/.test(s)?s.replace(/(\d+)\s*$/,m=>String(+m+1).padStart(m.length,'0')):s;
+/* o: {title,en,noLabel,docNo,recv,greet,rows:[{name,color,spec,unit,qty,due,note}],note,foot} */
+function officialSheet(o){
   const co=S.settings.co||{};
-  const contact=[co.person&&'담당 '+co.person,co.phone,co.email].filter(Boolean).join(' / ');
-  return `
-  <h1 style="text-align:center;letter-spacing:12px;margin:4px 0 14px">${title}</h1>
-  <div style="text-align:right;margin-bottom:6px">일자 : ${todayK()}</div>
-  <table style="table-layout:fixed;width:100%">
-    <colgroup><col style="width:34px"><col style="width:90px"><col><col style="width:70px"><col style="width:150px"></colgroup>
-    <tr><td rowspan="5" style="text-align:center;font-weight:700">발<br>주<br>처</td>
-      <th>등록번호</th><td colspan="3">${esc(co.bizNo||'')}</td></tr>
-    <tr><th>상호</th><td>${esc(co.name||'')}</td><th style="text-align:center">대표자</th><td>${esc(co.ceo||'')} (인)</td></tr>
-    <tr><th>소재지</th><td colspan="3">${esc(co.addr||'')}</td></tr>
-    <tr><th>업태</th><td>${esc(co.bizType||'')}</td><th style="text-align:center">종목</th><td>${esc(co.bizItem||'')}</td></tr>
-    <tr><th>연락처</th><td colspan="3">${esc(contact)}</td></tr>
+  const personLine=co.person?`${co.person}${co.phone?'('+co.phone+')':''}`:(co.phone||'');
+  const B='border:1px solid #565b66;';
+  const H=B+'background:#eef1f7;font-weight:700;text-align:center;padding:9px 6px;color:#1c2333;';
+  const D=B+'padding:9px 8px;';
+  return `<div style="color:#1c2333">
+  <div style="display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #2b3a5c;padding-bottom:10px;margin-bottom:16px">
+    <div style="font-size:29px;font-weight:900;letter-spacing:10px;color:#1c2b4a">${o.title}</div>
+    <div style="font-size:11px;color:#8a93a6;font-weight:700;letter-spacing:1px;padding-bottom:4px">${o.en||''}</div>
+  </div>
+  <div style="display:flex;justify-content:space-between;margin-bottom:16px;font-size:13px">
+    <div style="font-weight:800">${o.noLabel||'주문번호'} : ${esc(o.docNo||'')}</div>
+    <div>발주일 : ${todayK()}</div>
+  </div>
+  <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:18px;table-layout:fixed">
+    <colgroup><col style="width:92px"><col><col style="width:72px"><col style="width:170px"></colgroup>
+    <tr><th style="${H}">등록번호</th><td style="${D}" colspan="3">${esc(co.bizNo||'')}</td></tr>
+    <tr><th style="${H}">상호</th><td style="${D}">${esc(co.name||'')}</td><th style="${H}">대표자</th><td style="${D}">${esc(co.ceo||'')}</td></tr>
+    <tr><th style="${H}">소재지</th><td style="${D}" colspan="3">${esc(co.addr||'')}</td></tr>
+    <tr><th style="${H}">업태</th><td style="${D}">${esc(co.bizType||'')}</td><th style="${H}">종목</th><td style="${D}">${esc(co.bizItem||'')}</td></tr>
+    <tr><th style="${H}">대표 연락처</th><td style="${D}">${esc(co.email||'')}</td><th style="${H}">담당자</th><td style="${D}">${esc(personLine)}</td></tr>
   </table>
-  <div style="display:flex;justify-content:space-between;align-items:center;margin:14px 0 8px">
-    <div style="font-size:15px;font-weight:700">${esc(recvName||'')}${opts.noHonorific?'':' 귀하'}</div>
-    <div>아래와 같이 ${opts.verb||'발주'}합니다.</div></div>
-  <table style="table-layout:fixed;width:100%">
-    <colgroup><col style="width:38px"><col style="width:200px"><col style="width:46px"><col style="width:64px"><col style="width:96px"><col></colgroup>
-    <tr><th style="text-align:center">순번</th><th style="text-align:center">품명 / 규격</th><th style="text-align:center">단위</th><th style="text-align:center">수량</th><th style="text-align:center">희망납품일자</th><th style="text-align:center">비고</th></tr>
-    ${rows.map((r,i)=>`<tr><td style="text-align:center">${i+1}</td><td>${r[0]}</td><td style="text-align:center">${r[1]}</td><td style="text-align:right">${r[2]}</td><td style="text-align:center">${r[3]||''}</td><td style="word-break:break-all">${r[4]||''}</td></tr>`).join('')}
+  <div style="font-size:13.5px;font-weight:800;margin-bottom:5px">수신인 정보 : ${o.recv||''} 귀하</div>
+  <div style="font-size:13px;margin-bottom:12px">${o.greet||'아래와 같이 발주합니다.'}</div>
+  <table style="width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed">
+    <colgroup><col style="width:38px"><col><col style="width:110px"><col style="width:50px"><col style="width:42px"><col style="width:46px"><col style="width:98px"><col style="width:110px"></colgroup>
+    <tr>${['순번','품명','색상','규격','단위','수량','희망납품일자','비고'].map(t=>`<th style="${H}">${t}</th>`).join('')}</tr>
+    ${o.rows.map((r,i)=>`<tr>
+      <td style="${D}text-align:center">${i+1}</td>
+      <td style="${D}text-align:center">${r.name||''}</td>
+      <td style="${D}text-align:center">${r.color||'-'}</td>
+      <td style="${D}text-align:center">${r.spec||'-'}</td>
+      <td style="${D}text-align:center">${r.unit||''}</td>
+      <td style="${D}text-align:center">${r.qty||''}</td>
+      <td style="${D}text-align:center">${r.due||''}</td>
+      <td style="${D}word-break:break-all;font-size:11px">${r.note||''}</td></tr>`).join('')}
   </table>
-  ${opts.note?`<table style="table-layout:fixed;width:100%"><colgroup><col style="width:50px"><col></colgroup><tr><th style="text-align:center">참고</th><td style="vertical-align:top">${opts.note}</td></tr></table>`:''}`;
+  ${o.note?`<p style="font-size:12px;margin-top:16px">${o.note}</p>`:''}
+  <div style="position:fixed;bottom:0;left:0;right:0;border-top:1px solid #2b3a5c;padding:6px 24px;display:flex;justify-content:space-between;font-size:11px;color:#666"><span>${o.foot||''}</span><span>1 / 1</span></div>
+  </div>`;
+}
+/* ===== 생산일지 빈 양식 (업로드 서식 기준) ===== */
+function printDailyLog(){
+  const L='border:1px solid #6b6f5a;';
+  const lab=L+'background:#e9e4d5;font-weight:700;text-align:center;padding:10px 6px;color:#2b2b24;';
+  const cell=L+'padding:10px 8px;';
+  let rows='';
+  for(let i=1;i<=10;i++)rows+=`<tr><td style="${cell}text-align:center;height:27px">${i}</td><td style="${cell}"></td><td style="${cell}"></td><td style="${cell}"></td><td style="${cell}"></td></tr>`;
+  $('#printSheet').innerHTML=`<div style="color:#2b2b24">
+  <div style="background:#f5f1e6;text-align:center;padding:24px 0 18px;border-bottom:3px solid #3a3a30;margin-bottom:22px">
+    <div style="font-size:27px;font-weight:900;letter-spacing:12px">생 산 일 지</div>
+    <div style="font-size:10.5px;color:#8a8674;letter-spacing:2px;margin-top:7px">PRODUCTION DAILY RECORD</div>
+  </div>
+  <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:18px">
+    <colgroup><col style="width:100px"><col></colgroup>
+    <tr><th style="${lab}">생산일자</th><td style="${cell}">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;년&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;월&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;일</td></tr>
+  </table>
+  <div style="background:#666b52;color:#fff;font-weight:800;font-size:13px;padding:8px 12px;border:1px solid #6b6f5a;border-bottom:none">생산 내역</div>
+  <table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:18px;table-layout:fixed">
+    <colgroup><col style="width:44px"><col><col style="width:150px"><col style="width:135px"><col style="width:135px"></colgroup>
+    <tr><th style="${lab}" rowspan="2">No.</th><th style="${lab}" rowspan="2">제품</th><th style="${lab}" rowspan="2">색상/규격</th><th style="${lab}" colspan="2">1개 제작 시 투입량</th></tr>
+    <tr><th style="${lab}">플레이크(g)</th><th style="${lab}">파우더(g)</th></tr>
+    ${rows}
+  </table>
+  <table style="width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed">
+    <colgroup><col style="width:100px"><col style="width:140px"><col style="width:115px"><col style="width:95px"><col style="width:90px"><col></colgroup>
+    <tr><th style="${lab}">성형 온도</th><td style="${cell}text-align:center">C</td><th style="${lab}">하루 총 작업시간</th><td style="${cell}text-align:center">시간</td><th style="${lab}">총 생산량</th><td style="${cell}"></td></tr>
+    <tr><th style="${lab}height:115px">특이사항</th><td style="${cell}" colspan="5"></td></tr>
+    <tr><th style="${lab}">생산 담당자</th><td style="${cell}" colspan="2"></td><th style="${lab}">확인자</th><td style="${cell}" colspan="2"></td></tr>
+  </table>
+  <p style="font-size:10.5px;color:#555;margin-top:9px">* 작성 후 생산 담당자와 확인자가 내용을 검토하여 서명합니다.</p>
+  </div>`;
+  window.print();
 }
 
 /* ===== 텍스트/인쇄 ===== */
@@ -1433,14 +1546,14 @@ function ordersText(){
 $('#copyOrders').onclick=()=>{navigator.clipboard.writeText(ordersText()).then(()=>alert('복사 완료! 메신저에 붙여넣으세요.')).catch(()=>prompt('아래 내용을 복사하세요',ordersText()))};
 
 $('#printOrders').onclick=()=>{
-  const fc=forecast();
   const pend=S.orders.filter(o=>!o.done);
   if(!pend.length){alert('진행 중인 제작 순서가 없습니다.');return}
   const fa=S.settings.factory||{};
-  const rows=pend.map(o=>[esc(nameOf(o.pid,o.cid)),'개',String(o.qty),o.due?kdate(o.due):'',esc(o.note||'')]);
-  $('#printSheet').innerHTML=officialSheet('생 산 요 청 서',
-    [fa.name,fa.person&&'담당 '+fa.person,fa.phone].filter(Boolean).join(' · '),rows,
-    {verb:'생산을 요청',noHonorific:true,note:'제작은 위 순번 순서대로 진행 부탁드립니다.'});
+  const recv=esc(fa.name||'')+(fa.person?` (담당 ${esc(fa.person)}${fa.phone?' · '+esc(fa.phone):''})`:'');
+  const rows=pend.map(o=>{const p=prodOf(o.pid),c=colorOf(p,o.cid);
+    return {name:esc(p?p.name:'(삭제된 제품)'),color:esc(c?c.name:'?'),spec:'-',unit:'개',qty:String(o.qty),due:o.due?kdate(o.due):'',note:esc(o.note||'')}});
+  $('#printSheet').innerHTML=officialSheet({title:'생 산 요 청 서',en:'PRODUCTION REQUEST',noLabel:'주문번호',docNo:reqNo(),recv,
+    greet:'아래와 같이 생산을 요청합니다.',rows,note:'참고) 제작은 위 순번 순서대로 진행 부탁드립니다.',foot:'생산요청서'});
   window.print();
 };
 
@@ -1448,7 +1561,8 @@ $('#printPO').onclick=()=>{
   const po=poData();
   const parts=[];
   if(po.blendRows.length)po.blendSups.forEach(s=>{
-    parts.push(officialSheet('발 주 서',supLabel(s),blendRowsFor(po),{noHonorific:true,note:'비고란의 배합은 1포대당 kg 기준입니다.'}));
+    parts.push(officialSheet({title:'발 주 서',en:'PURCHASE ORDER',noLabel:'발주번호',docNo:poNoV(),recv:esc(supLabel(s)),
+      greet:'아래와 같이 발주합니다.',rows:blendRowsFor(po),note:'참고) 비고란의 배합은 1포대당 kg 기준입니다.',foot:'발주서'}));
   });
   if(!parts.length){alert('발주할 내용이 없습니다.');return}
   $('#printSheet').innerHTML=parts.join('<div style="page-break-after:always"></div>');
@@ -1489,6 +1603,12 @@ $('#addSup').onclick=()=>{const v=$('#sName').value.trim();if(!v)return;
 $('#addTest').onclick=()=>{const t={id:uid(),name:'',src:'',qty:0,due:'',unit:'%',status:'대기',note:'',recipe:[{name:'',val:0}]};S.tests.unshift(t);openTest=t.id;render();document.querySelector('.tabs button[data-tab=tests]').click()};
 $('#printRecipes').onclick=printRecipesAll;
 $('#archiveBtn').onclick=archiveOrders;
+$('#dailyLogBtn').onclick=printDailyLog;
+$('#dailyLogBtn2').onclick=printDailyLog;
+$('#reqNo').value=reqNo();
+$('#reqNo').onchange=e=>{S.settings.docNoReq=e.target.value.trim();save()};
+$('#poNo').value=poNoV();
+$('#poNo').onchange=e=>{S.settings.docNoPo=e.target.value.trim();save()};
 $('#prodStart').value=S.settings.prodStart||'';
 $('#prodStart').onchange=e=>{S.settings.prodStart=e.target.value;render()};
 $('#poDue').onchange=()=>render();
@@ -1525,8 +1645,13 @@ $('#resetBtn').onclick=()=>{if(confirm('모든 데이터가 삭제되고 기본 
 /* ===== Firebase 실시간 동기화 ===== */
 let FBdoc=null,FBtimer=null;
 function setStat(t,err){
-  const el=$('#syncStat');if(el){el.textContent=t;el.style.color=err?'var(--red)':'var(--sub)'}
+  const el=$('#syncStat');if(el){el.textContent=t;el.style.color=err?'var(--red)':'var(--sub)';el.style.fontWeight=err?'700':''}
   const g=$('#fbInfo');if(g){g.textContent=t;g.style.color=err?'var(--red)':'var(--sub)'}
+  const b=$('#syncBanner');
+  if(b){
+    if(err){b.textContent='⚠️ '+t+' — 지금 입력하는 내용이 다른 기기와 공유되지 않을 수 있어요. 인터넷 연결 확인 후 새로고침해 주세요.';b.style.display='block'}
+    else b.style.display='none';
+  }
 }
 let FBdb=null,lastBackupDay='';
 function pushNow(){
@@ -1584,7 +1709,12 @@ function startSync(){
   },e=>{syncBooting=false;setStat('☁️ 연결 오류: '+e.message,1)});
 }
 function initFB(){
-  if(!FB_ON){setStat('💾 로컬 모드 — 이 기기에만 저장 (공유하려면 설정 탭의 Firebase 안내 참고)');return}
+  if(!FB_ON){
+    const cfgPresent=firebaseConfig.apiKey&&firebaseConfig.apiKey!=='PASTE_YOUR_CONFIG_HERE';
+    if(cfgPresent)setStat('동기화 연결 실패 (Firebase 스크립트가 로드되지 않음) — 로컬 모드로 동작 중',1);
+    else setStat('💾 로컬 모드 — 이 기기에만 저장 (공유하려면 설정 탭의 Firebase 안내 참고)');
+    return;
+  }
   firebase.initializeApp(firebaseConfig);
   const auth=firebase.auth();
   const gate=document.getElementById('authGate');
