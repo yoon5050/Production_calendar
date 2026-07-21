@@ -285,6 +285,7 @@ window.FIREBASE_CONFIG={
       <label style="display:flex;gap:5px;align-items:center;font-size:13px" title="발주 확정 시 이 번호로 잠기고, 발주 마감 시 자동으로 다음 번호가 생성됩니다">발주번호 <input type="text" id="poNo" style="width:130px"></label>
       <button class="btn" id="printPO">🖨 발주서 전체 인쇄</button>
       <button class="btn" id="recipePdfBtn" title="업로드해 둔 배합비 원본 파일을 그대로 다운로드">📎 배합비 원본 PDF</button>
+      <span style="color:var(--red);font-weight:800;font-size:12px;align-self:center">⚠️ 필수: 발주서 인쇄 후 반드시 배합비 원본과 비율 대조!</span>
     </div>
     <p class="hint" style="margin:-4px 0 10px">♻️ 이 탭은 <b>재료(플레이크·파우더)를 자재 업체에 주문</b>하는 곳이에요. 생산 공장에 보내는 제작 요청은 <b>생산 발주 🏭</b> 탭에서.<br>
     <b>흐름:</b> ① 생산 발주 등록 → ② 자재 필요량이 자동 계산되면 발주서 인쇄·전송 → ③ <b>희망 입고일 지정 후 아래 "배합 발주 확정"</b>을 누르면
@@ -318,7 +319,7 @@ window.FIREBASE_CONFIG={
   <section class="tab" id="tab-products">
     <div class="card">
       <h2 class="sec">제품 · 색상 · 배합 관리</h2>
-      <div class="toolbar"><button class="btn" id="printRecipes">🖨 배합표 전체 인쇄</button><button class="btn" id="recipePdfBtn2" title="업로드해 둔 배합비 원본 파일을 그대로 다운로드">📎 배합비 원본 PDF</button></div>
+      <div class="toolbar"><button class="btn" id="printRecipes">🖨 배합표 전체 인쇄</button><button class="btn" id="recipePdfBtn2" title="업로드해 둔 배합비 원본 파일을 그대로 다운로드">📎 배합비 원본 PDF</button><span style="color:var(--red);font-weight:800;font-size:12px;align-self:center">⚠️ 필수: 발주서 인쇄 후 반드시 배합비 원본과 비율 대조!</span></div>
       <div id="prodList"></div>
       <div class="addform">
         <div class="ln">
@@ -999,7 +1000,7 @@ function renderOrders(){
     return `<div class="order ${o.done?'done':''}">
       <div class="no">${i+1}</div>
       <div class="info"><div class="nm">${esc(nameOf(o.pid,o.cid))} · ${o.qty}개</div>
-        <div class="meta">${o.note?esc(o.note)+' · ':''}납품 희망 <input type="date" data-odue="${i}" value="${o.due||''}" style="padding:1px 4px;font-size:11px"></div></div>
+        <div class="meta">${(()=>{const c=colorOf(p,o.cid);return c&&(c.kgPer||c.powderKg)?`개당 플레이크 ${Math.round((c.kgPer||0)*1000)}g${c.powderKg?' + 파우더 '+Math.round(c.powderKg*1000)+'g':''} · `:''})()}${o.note?esc(o.note)+' · ':''}납품 희망 <input type="date" data-odue="${i}" value="${o.due||''}" style="padding:1px 4px;font-size:11px"></div></div>
       <div class="eta">${eta}</div>
       <div class="ctl">
         <button class="btn sm" data-a="up" data-i="${i}">▲</button>
@@ -1105,22 +1106,27 @@ function renderPO(){
         <label style="font-size:12px;display:flex;gap:4px;align-items:center">입고 예정일 <input type="date" id="hbDue"></label>
         <button class="btn sm pri" id="matConfirmBtn">✅ 배합 발주 확정</button>
         <button class="btn sm" id="blendPrintBtn">🖨 발주서 인쇄</button></span></div>
-      ${eff.length?`<table class="t"><tr><th>색상</th><th class="r" style="width:110px">생산발주 수량</th><th class="r" style="width:100px">필요 kg</th><th class="r" style="width:120px">발주 포대(${sk}kg)</th><th style="width:150px"></th></tr>
-      ${eff.map(r=>`<tr style="${r.sacks>0?'':'opacity:.45'}">
+      ${(()=>{const excl=eff.filter(r=>r.src==='auto'&&!r.auto&&r.sacks===0);
+        const shown=eff.filter(r=>!(r.src==='auto'&&!r.auto&&r.sacks===0));
+        if(!shown.length&&!excl.length)return '<p class="hint">생산 발주 🏭 탭에 제작 순서를 등록하면 자동으로 채워져요. 아래에서 직접 추가할 수도 있습니다.</p>';
+        return `${shown.length?`<table class="t"><tr><th>색상</th><th class="r" style="width:110px">생산발주 수량</th><th class="r" style="width:100px">필요 kg</th><th class="r" style="width:120px">발주 포대(${sk}kg)</th><th style="width:170px"></th></tr>
+      ${shown.map(r=>`<tr style="${r.sacks>0?'':'opacity:.45'}">
         <td><b>${esc(nameOf(r.pid,r.cid))}</b>${r.src==='extra'?' <span class="badge">직접 추가</span>':''}</td>
         <td class="r">${r.qty!=null?r.qty+'개':'-'}</td>
         <td class="r">${r.needKg!=null?kg1(r.needKg)+'kg':'-'}</td>
         <td class="r"><input type="number" data-bsk="${r.key}" data-auto="${r.autoSacks===null?'':r.autoSacks}" value="${r.sacks}" min="0" style="width:64px"></td>
-        <td style="white-space:nowrap">${r.src==='auto'?(r.auto?'':'<span class="badge">✏️ 수정됨</span> <button class="btn sm" data-brst="'+r.key+'" title="자동 계산값으로 되돌리기">↺</button>'):'<button class="btn sm danger" data-bdel="'+r.xid+'">삭제</button>'}${r.sacks>0?'':' <span style="font-size:11px;color:var(--sub)">발주 제외</span>'}</td></tr>`).join('')}
-      <tr><td><b>합계</b></td><td></td><td></td><td class="r"><b>${effAct.reduce((a,r)=>a+r.sacks,0)}포대</b></td><td></td></tr></table>`
-      :'<p class="hint">생산 발주 🏭 탭에 제작 순서를 등록하면 자동으로 채워져요. 아래에서 직접 추가할 수도 있습니다.</p>'}
+        <td style="white-space:nowrap">${r.src==='auto'
+          ?(r.auto?'':'<span class="badge">✏️ 수정됨</span> <button class="btn sm" data-brst="'+r.key+'" title="자동 계산값으로 되돌리기">↺</button> ')+'<button class="btn sm danger" data-bexc="'+r.key+'" title="이번 발주에서 제외 (아래 제외 목록에서 복원 가능)">삭제</button>'
+          :'<button class="btn sm danger" data-bdel="'+r.xid+'">삭제</button>'}</td></tr>`).join('')}
+      <tr><td><b>합계</b></td><td></td><td></td><td class="r"><b>${effAct.reduce((a,r)=>a+r.sacks,0)}포대</b></td><td></td></tr></table>`:''}
+      ${excl.length?`<p class="hint" style="margin-top:6px">🚫 제외됨: ${excl.map(r=>`<b>${esc(nameOf(r.pid,r.cid))}</b> <button class="btn sm" data-brst="${r.key}">↺ 복원</button>`).join(' · ')}</p>`:''}`})()}
       <div class="addform"><div class="ln">
         <select id="bxProd"></select><select id="bxColor"></select>
         <input type="number" id="bxSacks" placeholder="포대" min="1" style="width:70px">
         <button class="btn pri sm" id="bxAdd">+ 직접 추가</button>
         <button class="btn sm" id="bxReset" style="margin-left:auto">⟳ 생산발주 기준으로 재계산</button>
       </div></div>
-      <p class="hint">생산 발주 수량 기준으로 자동 작성되고, 포대 수를 직접 고치면 ✏️ 표시가 붙어 생산 발주가 바뀌어도 덮어쓰지 않아요. 0으로 두면 발주에서 제외됩니다.</p></div>`;
+      <p class="hint">생산 발주 수량 기준으로 자동 작성되고, 포대 수를 직접 고치면 ✏️ 표시가 붙어 생산 발주가 바뀌어도 덮어쓰지 않아요. <b>삭제</b>를 누르면 이번 발주에서 제외되고, 아래 제외 목록에서 복원할 수 있습니다.</p></div>`;
   }
   $('#poSups').innerHTML=cardHtml;
   bindSupPicker('poSup','poSupPerson','poSupPhone',()=>{const s=poSupSel();return s?s.id:''},v=>{S.settings.poSupId=v},'blend');
@@ -1134,6 +1140,7 @@ function renderPO(){
     render();
   });
   document.querySelectorAll('#poSups [data-brst]').forEach(b=>b.onclick=()=>{delete S.blendOv[b.dataset.brst];render()});
+  document.querySelectorAll('#poSups [data-bexc]').forEach(b=>b.onclick=()=>{S.blendOv[b.dataset.bexc]=0;render()});
   document.querySelectorAll('#poSups [data-bdel]').forEach(b=>b.onclick=()=>{S.blendExtra=S.blendExtra.filter(x=>x.id!==b.dataset.bdel);render()});
   const bxP=$('#bxProd');
   if(bxP){
@@ -1544,6 +1551,7 @@ function officialSheet(o){
       ${o.noNote?'':`<td style="${D}word-break:break-all;font-size:11px">${r.note||''}</td>`}</tr>`).join('')}
   </table>
   ${o.note?`<p style="font-size:12px;margin-top:16px">${o.note}</p>`:''}
+  ${o.extra||''}
   <div style="position:fixed;bottom:0;left:0;right:0;border-top:1px solid #2b3a5c;padding:6px 24px;display:flex;justify-content:space-between;font-size:11px;color:#666"><span>${o.foot||''}</span><span>${o.pageLabel!==undefined?o.pageLabel:'1 / 1'}</span></div>
   </div>`;
 }
@@ -1602,7 +1610,7 @@ function blendSheetSet(sup,items,dueTxt){
   });
   const sheet=officialSheet({title:'발 주 서',en:'PURCHASE ORDER',noLabel:'발주번호',docNo:poNoV(),
     recv:esc(sup?sup.name:''),recvSub:recvSubOf(sup),greet:'아래와 같이 발주합니다.',rows,noNote:true,
-    note:'참고) 뒷장의 플레이크별 필요량 합계와 배합비를 함께 확인해 주세요.',foot:'발주서',pageLabel:''});
+    note:'참고) 뒷장의 플레이크별 필요량 합계와 배합비를 함께 확인해 주세요. <b style="color:#c02020">※ 필수: 배합비 원본과 비율 대조 후 진행해 주세요.</b>',foot:'발주서',pageLabel:''});
   return sheet+flakePage(items)+recipePage(items);
 }
 function printBatchSheet(batch){
@@ -1675,8 +1683,23 @@ $('#printOrders').onclick=()=>{
   if(!recv&&!confirm('수신처가 선택되지 않았어요. 수신인 없이 인쇄할까요?\n(툴바의 "수신처"에서 발주처 관리에 등록된 곳을 선택할 수 있어요)'))return;
   const rows=pend.map(o=>{const p=prodOf(o.pid),c=colorOf(p,o.cid);
     return {name:esc(p?p.name:'(삭제된 제품)'),color:esc(c?c.name:'?'),spec:'-',unit:'개',qty:String(o.qty),due:o.due?kdate(o.due):'',note:esc(o.note||'')}});
+  /* 제품별 1개 제작 시 투입량 — 제품·배합 데이터에서 자동 작성 */
+  const seenM=new Set();const matRows=[];
+  pend.forEach(o=>{const key=o.pid+'|'+o.cid;if(seenM.has(key))return;seenM.add(key);
+    const p=prodOf(o.pid),c=colorOf(p,o.cid);if(!c)return;
+    const fg=Math.round((c.kgPer||0)*1000),pg=Math.round((c.powderKg||0)*1000);
+    matRows.push(`<tr><td style="${PD}text-align:center">${esc(p.name)}</td><td style="${PD}text-align:center">${esc(c.name)}</td>
+      <td style="${PD}text-align:right">${fg?fg.toLocaleString():'-'}</td><td style="${PD}text-align:right">${pg?pg.toLocaleString():'-'}</td>
+      <td style="${PD}text-align:right;font-weight:700">${(fg+pg)?(fg+pg).toLocaleString():'-'}</td></tr>`);
+  });
+  const extra=matRows.length?`<div style="margin-top:20px">
+    <div style="font-size:13px;font-weight:800;margin-bottom:6px">제품별 1개 제작 시 투입량 <span style="font-weight:400;color:#555;font-size:11px">(제품·배합 등록 기준 자동 작성)</span></div>
+    <table style="width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed">
+      <colgroup><col><col style="width:130px"><col style="width:110px"><col style="width:110px"><col style="width:110px"></colgroup>
+      <tr><th style="${PH}">품명</th><th style="${PH}">색상</th><th style="${PH}">플레이크(g)</th><th style="${PH}">파우더(g)</th><th style="${PH}">합계(g)</th></tr>
+      ${matRows.join('')}</table></div>`:'';
   $('#printSheet').innerHTML=officialSheet({title:'생 산 요 청 서',en:'PRODUCTION REQUEST',noLabel:'주문번호',docNo:reqNo(),recv,recvSub,
-    greet:'아래와 같이 생산을 요청합니다.',rows,note:'참고) 제작은 위 순번 순서대로 진행 부탁드립니다.',foot:'생산요청서'});
+    greet:'아래와 같이 생산을 요청합니다.',rows,note:'참고) 제작은 위 순번 순서대로 진행 부탁드립니다.',foot:'생산요청서',extra});
   window.print();
 };
 
