@@ -241,7 +241,9 @@ window.FIREBASE_CONFIG={
       <button class="btn pri" id="copyOrders">📋 텍스트 복사 (공장 전달)</button>
       <button class="btn" id="printOrders">🖨 생산 요청서 인쇄</button>
       <button class="btn" id="dailyLogBtn2">🖨 생산일지 양식</button>
-      <label style="display:flex;gap:5px;align-items:center;font-size:13px" title="생산 요청서의 수신인 — 발주처 관리(자재·재고 탭)에 등록된 곳 중에서 선택">수신처 <select id="reqSup"></select></label>
+      <label style="display:flex;gap:5px;align-items:center;font-size:13px" title="생산 요청서의 수신인 — 선택하거나 새로 등록하고, 담당자·연락처를 바로 입력할 수 있어요">수신처 <select id="reqSup"></select></label>
+      <input type="text" id="reqSupPerson" placeholder="담당자" style="width:76px" title="선택한 수신처의 담당자 (발주처 관리와 연동)">
+      <input type="text" id="reqSupPhone" placeholder="연락처" style="width:116px" title="선택한 수신처의 연락처 (발주처 관리와 연동)">
       <label style="display:flex;gap:5px;align-items:center;font-size:13px" title="발주 확정 시 이 번호로 잠기고, 발주 마감 시 자동으로 다음 번호가 생성됩니다">주문번호 <input type="text" id="reqNo" style="width:130px"></label>
       <label style="display:flex;gap:5px;align-items:center;font-size:13px" title="플레이크 입고일에 맞춰 생산 시작일을 지정하면 예정 일정이 그날부터 계산됩니다">생산 시작일 <input type="date" id="prodStart"></label>
       <button class="btn" id="prodConfirmBtn" style="margin-left:auto"></button>
@@ -263,7 +265,6 @@ window.FIREBASE_CONFIG={
       </div>
       <p class="hint">예상 완료일은 <b>제품별 하루 생산량</b>(제품·배합 탭)과 휴무일 기준으로,
       <b>위 우선순위 순서대로 한 줄로 생산</b>한다고 가정해 계산됩니다 (제품이 바뀌면 그날 남은 가동분만큼 이어서 생산).
-      실제 생산 기록이 쌓이면 잔여 수량이 자동으로 줄어듭니다.
       업체와 협의가 끝나면 위의 <b>✅ 생산 발주 확정</b>을 눌러 캘린더에 일정을 반영하세요.</p>
     </div>
     <div class="card">
@@ -276,9 +277,9 @@ window.FIREBASE_CONFIG={
 
   <section class="tab" id="tab-po">
     <div class="toolbar">
-      <label style="display:flex;gap:5px;align-items:center;font-size:13px">계산 기준
-        <select id="poBasis"><option value="rem">잔여 수량 (목표-생산완료)</option><option value="total">목표 수량 전체</option></select>
-      </label>
+      <label style="display:flex;gap:5px;align-items:center;font-size:13px" title="발주서의 수신인 — 선택하거나 새로 등록하고, 담당자·연락처를 바로 입력할 수 있어요">수신처 <select id="poSup"></select></label>
+      <input type="text" id="poSupPerson" placeholder="담당자" style="width:76px" title="선택한 수신처의 담당자 (발주처 관리와 연동)">
+      <input type="text" id="poSupPhone" placeholder="연락처" style="width:116px" title="선택한 수신처의 연락처 (발주처 관리와 연동)">
       <label style="display:flex;gap:5px;align-items:center;font-size:13px"><input type="checkbox" id="poStock" checked>현재 재고 차감 (부족분만 발주)</label>
       <label style="display:flex;gap:5px;align-items:center;font-size:13px">희망 입고일 <input type="date" id="poDue"></label>
       <label style="display:flex;gap:5px;align-items:center;font-size:13px" title="발주 확정 시 이 번호로 잠기고, 발주 마감 시 자동으로 다음 번호가 생성됩니다">발주번호 <input type="text" id="poNo" style="width:130px"></label>
@@ -558,6 +559,9 @@ S.settings.reqNoLast=S.settings.reqNoLast||'';
 S.settings.poNoCur=S.settings.poNoCur||S.settings.docNoPo||'';
 S.settings.poNoLast=S.settings.poNoLast||'';
 S.settings.reqSupId=S.settings.reqSupId||''; /* 생산요청서 수신처 (발주처 관리에서 선택) */
+S.settings.poSupId=S.settings.poSupId||'';   /* 자재 발주서 수신처 */
+S.blendOv=S.blendOv||{};      /* 자재발주 포대 수 수동 수정 (색상키 → 포대) */
+S.blendExtra=S.blendExtra||[]; /* 자재발주 직접 추가 행 */
 /* 색상(배합) 단위 입고로 전환 — 예전 플레이크 단위 발주 확정분은 정리 */
 {const legacy=S.poBatches.filter(b=>(b.items||[]).some(it=>it.fid&&!it.pid));
  if(legacy.length){
@@ -603,7 +607,8 @@ function ENS(d){
   d.settings.sack=d.settings.sack||10;
   d.settings.reqNoCur=d.settings.reqNoCur||'';d.settings.reqNoLast=d.settings.reqNoLast||'';
   d.settings.poNoCur=d.settings.poNoCur||'';d.settings.poNoLast=d.settings.poNoLast||'';
-  d.settings.reqSupId=d.settings.reqSupId||'';
+  d.settings.reqSupId=d.settings.reqSupId||'';d.settings.poSupId=d.settings.poSupId||'';
+  d.blendOv=d.blendOv||{};d.blendExtra=d.blendExtra||[];
   (d.flakes||[]).forEach(f=>{f.kind=f.kind||'flake';f.supId=f.supId||'';f.stock=f.stock||0;f.stockDate=f.stockDate||null});
   (d.products||[]).forEach(p=>p.colors.forEach(c=>{c.powderKg=c.powderKg||0;c.memo=c.memo||''}));
   return d;
@@ -681,8 +686,30 @@ const coLine=()=>{const c=S.settings.co||{};return [c.name,c.person&&'담당 '+c
 const supOf=id=>S.suppliers.find(s=>s.id===id);
 const supLabel=s=>s?[s.name,s.person&&'담당 '+s.person,s.phone].filter(Boolean).join(' · '):'발주처 미지정';
 const factoryLine=()=>{const f=S.settings.factory||{};return [f.name,f.person&&'담당 '+f.person,f.phone].filter(Boolean).join(' · ')};
+/* 수신처 select + 담당자/연락처 입력 묶음 — 발주처 관리(S.suppliers)와 직접 연동 */
+function bindSupPicker(selId,pId,phId,get,set,newType){
+  const sel=$('#'+selId),pi=$('#'+pId),ph=$('#'+phId);
+  if(!sel)return;
+  sel.innerHTML='<option value="">수신처 선택…</option>'
+    +S.suppliers.map(s=>`<option value="${s.id}" ${get()===s.id?'selected':''}>${esc(s.name)}</option>`).join('')
+    +'<option value="__new">＋ 새 수신처 등록…</option>';
+  sel.onchange=e=>{
+    if(e.target.value==='__new'){
+      const nm=prompt('새 수신처 이름을 입력하세요 (발주처 관리에 함께 등록됩니다)');
+      if(nm&&nm.trim()){const sp={id:uid(),name:nm.trim(),person:'',phone:'',type:newType};S.suppliers.push(sp);set(sp.id)}
+      render();return;
+    }
+    set(e.target.value);render();
+  };
+  const sp=supOf(get());
+  [pi,ph].forEach(el=>{if(el)el.disabled=!sp});
+  if(pi&&document.activeElement!==pi)pi.value=sp?(sp.person||''):'';
+  if(ph&&document.activeElement!==ph)ph.value=sp?(sp.phone||''):'';
+  if(pi)pi.onchange=e=>{const x=supOf(get());if(x){x.person=e.target.value.trim();render()}};
+  if(ph)ph.onchange=e=>{const x=supOf(get());if(x){x.phone=e.target.value.trim();render()}};
+}
 
-/* ===== 예상 완료일: 제품별 생산라인 동시 가동, 제품 내 순서대로 ===== */
+/* ===== 예상 완료일: 목표 수량 전체 기준 (수량관리 없음) ===== */
 function forecast(){
   const out=new Map(),days=new Map();
   const put=(ds,o,qty)=>{if(!days.has(ds))days.set(ds,[]);days.get(ds).push({pid:o.pid,cid:o.cid,qty})};
@@ -693,8 +720,8 @@ function forecast(){
   /* 우선순위(목록 순서)대로 한 줄로 생산 — 제품이 바뀌면 남은 가동분만큼 그 제품 생산량으로 환산 */
   let d=parse(startDs),frac=isOff(startDs)?0:1,guard=0;
   for(const o of S.orders){
-    let rem=o.qty-cumActual(o.pid,o.cid);
-    if(o.done||rem<=0){out.set(o.id,{eta:'done',rem:Math.max(0,rem)});continue}
+    let rem=o.qty;
+    if(o.done||rem<=0){out.set(o.id,{eta:'done',rem:0});continue}
     const p=prodOf(o.pid);const cap=p?(p.cap||0):0;
     if(!cap){out.set(o.id,{eta:null,rem});continue}
     const r0=rem;
@@ -715,13 +742,12 @@ const confirmedDays=()=>S.settings.prodConfirmed?forecast().days:new Map();
 
 /* ===== 발주 계산 ===== */
 function poData(){
-  const basis=$('#poBasis')?$('#poBasis').value:'rem';
   const useStock=$('#poStock')?$('#poStock').checked:true;
   const colorRows=[],blendRows=[],fm=new Map();const sk=sackKg();
   for(const o of S.orders){
     if(o.done)continue;
     const p=prodOf(o.pid),c=colorOf(p,o.cid);if(!p||!c)continue;
-    const qty=basis==='rem'?Math.max(0,o.qty-cumActual(o.pid,o.cid)):o.qty;
+    const qty=o.qty;
     if(qty<=0)continue;
     const kg=qty*(c.kgPer||0);
     colorRows.push({name:nameOf(o.pid,o.cid),qty,kgPer:c.kgPer||0,kg,powder:kg1(qty*(c.powderKg||0)),sacks:Math.ceil(kg/sk),noRecipe:!(c.recipe&&c.recipe.length)});
@@ -742,8 +768,28 @@ function poData(){
     sups.get(r.supId).push(r);
   }
   const blendSups=S.suppliers.filter(s=>s.type==='blend');
-  return {colorRows,flakeRows,sups,blendRows,blendSups,basis,useStock};
+  return {colorRows,flakeRows,sups,blendRows,blendSups,useStock};
 }
+/* ===== 자재발주 편집 목록: 생산발주 기준 자동 작성 + 수동 수정/추가 ===== */
+const poSupSel=()=>supOf(S.settings.poSupId)||S.suppliers.find(s=>s.type==='blend')||null;
+function blendEff(po){
+  po=po||poData();
+  const rows=[],seen=new Set();
+  po.blendRows.forEach(r=>{
+    const key=r.p.id+'|'+r.c.id;seen.add(key);
+    const ov=S.blendOv[key];
+    rows.push({pid:r.p.id,cid:r.c.id,key,qty:r.qty,needKg:r.kg,autoSacks:r.sacks,
+      sacks:(ov!==undefined)?ov:r.sacks,auto:ov===undefined,src:'auto'});
+  });
+  S.blendExtra.forEach(x=>{
+    const key=x.pid+'|'+x.cid;
+    if(seen.has(key))return;
+    if(!colorOf(prodOf(x.pid),x.cid))return;
+    rows.push({pid:x.pid,cid:x.cid,key,qty:null,needKg:null,autoSacks:null,sacks:x.sacks,auto:false,src:'extra',xid:x.id});
+  });
+  return rows;
+}
+const blendEffItems=po=>blendEff(po).filter(r=>r.sacks>0).map(r=>({pid:r.pid,cid:r.cid,sacks:r.sacks,kg:kg1(r.sacks*sackKg())}));
 
 /* ===== render ===== */
 function render(){renderStats();renderCal();renderStockView();renderRangeView();renderPanel();renderOrders();renderPO();renderTests();renderProds();renderFlakes();renderSettings();save()}
@@ -773,8 +819,8 @@ function renderStockView(){
   if(!showStockView){el.innerHTML='';return}
   const fc=forecast();
   const pend=S.orders.filter(o=>!o.done);
-  const rows=pend.map(o=>{const r=fc.etas.get(o.id);const done=cumActual(o.pid,o.cid);
-    return `<tr><td>${esc(nameOf(o.pid,o.cid))}</td><td class="r">${Math.max(0,o.qty-done)}개</td><td>${r&&r.eta==='done'?'달성':r&&r.eta?kdate(r.eta):'-'}</td></tr>`}).join('');
+  const rows=pend.map(o=>{const r=fc.etas.get(o.id);
+    return `<tr><td>${esc(nameOf(o.pid,o.cid))}</td><td class="r">${o.qty}개</td><td>${r&&r.eta&&r.eta!=='done'?kdate(r.eta):'-'}</td></tr>`}).join('');
   const sk=sackKg();
   const sks=v=>kg1(v/sk);
   const colorRows2=trackedColors().map(x=>{
@@ -792,7 +838,7 @@ function renderStockView(){
   const mats=[...colorRows2,...pwRows].join('');
   el.innerHTML=`<div class="card"><h2 class="sec">📊 예상 재고 ${S.settings.prodConfirmed?'':'<span class="badge">생산 발주 미확정 — 시뮬레이션</span>'}</h2>
     <div class="row"><div style="flex:1;min-width:280px"><div style="font-size:12px;font-weight:700;color:var(--sub);margin-bottom:4px">🏭 제품 완성 예정</div>
-      <table class="t"><tr><th>품목</th><th class="r" style="width:80px">잔여</th><th style="width:110px">예상 완료</th></tr>${rows||'<tr><td colspan="3" style="color:var(--sub)">진행 중 발주 없음</td></tr>'}</table></div>
+      <table class="t"><tr><th>품목</th><th class="r" style="width:80px">수량</th><th style="width:110px">예상 완료</th></tr>${rows||'<tr><td colspan="3" style="color:var(--sub)">진행 중 발주 없음</td></tr>'}</table></div>
     <div style="flex:1;min-width:280px"><div style="font-size:12px;font-weight:700;color:var(--sub);margin-bottom:4px">♻️ 자재 잔량 — 색상 배합 포대 기준 (현재 → 전체 생산 완료 후)</div>
       <table class="t"><tr><th>자재</th><th class="r" style="width:90px">현재</th><th class="r" style="width:130px">생산 후 예상</th></tr>${mats||'<tr><td colspan="3" style="color:var(--sub)">재고 관리 중인 자재 없음</td></tr>'}</table>
       <p class="hint" style="margin-top:6px">⚠️ <b>마이너스 = 아직 입고되지 않아 부족한 양</b>이에요. 자재 발주 ♻️ 탭에서 <b>배합 발주 확정</b>을 하면 입고 예정이 잡히면서 해소됩니다.</p></div></div></div>`;
@@ -807,7 +853,7 @@ function renderStats(){
   const futureRecs=S.records.filter(r=>r.date>today);
   let totRem,last=null,pwNeed;
   if(hasOrders){ /* 진행 중 발주 기준 */
-    totRem=S.orders.filter(o=>!o.done).reduce((a,o)=>a+Math.max(0,o.qty-cumActual(o.pid,o.cid)),0);
+    totRem=S.orders.filter(o=>!o.done).reduce((a,o)=>a+o.qty,0);
     const fc=forecast();
     for(const o of S.orders){const r=fc.etas.get(o.id);if(r&&r.eta&&r.eta!=='done'&&(!last||r.eta>last))last=r.eta}
     pwNeed=kg1(po.flakeRows.filter(r=>r.kind==='powder').reduce((a,r)=>a+r.kg,0));
@@ -818,7 +864,7 @@ function renderStats(){
   }
   const pwStock=kg1(S.flakes.filter(f=>f.kind==='powder').reduce((a,f)=>a+stockNow(f),0));
   $('#stats').innerHTML=[
-    ['잔여 목표',totRem+'개'],['플레이크 발주 필요',kg1(totOrder)+'kg'],
+    ['진행 중 발주·예정 수량',totRem+'개'],['플레이크 발주 필요',kg1(totOrder)+'kg'],
     [`파우더 재고 / 소요`,`<span style="${pwStock<pwNeed?'color:var(--red)':''}">${pwStock}</span> / ${pwNeed}kg`],
     ['전체 완료 예상',last?kdate(last):'-']
   ].map(([l,v])=>`<div class="stat"><div class="l">${l}</div><div class="v">${v}</div></div>`).join('');
@@ -943,13 +989,12 @@ function renderOrders(){
   const fc=forecast();
   $('#orderList').innerHTML=S.orders.length?S.orders.map((o,i)=>{
     const p=prodOf(o.pid);
-    const r=fc.etas.get(o.id),done=cumActual(o.pid,o.cid),pc=Math.min(100,Math.round(done/o.qty*100));
-    const eta=o.done?'완료 처리됨':!r?'-':r.eta==='done'?'✅ 수량 달성':r.eta?`예상 완료 <b>${kdate(r.eta)}</b>`:(p&&!p.cap?'⚠️ 하루 생산량 미설정':'-');
+    const r=fc.etas.get(o.id);
+    const eta=o.done?'완료 처리됨':!r?'-':r.eta&&r.eta!=='done'?`예상 완료 <b>${kdate(r.eta)}</b>`:(p&&!p.cap?'⚠️ 하루 생산량 미설정':'-');
     return `<div class="order ${o.done?'done':''}">
       <div class="no">${i+1}</div>
       <div class="info"><div class="nm">${esc(nameOf(o.pid,o.cid))} · ${o.qty}개</div>
-        <div class="meta">완료 ${done} / 잔여 ${Math.max(0,o.qty-done)}${o.note?' · '+esc(o.note):''}
-         · 납품 희망 <input type="date" data-odue="${i}" value="${o.due||''}" style="padding:1px 4px;font-size:11px"></div></div>
+        <div class="meta">${o.note?esc(o.note)+' · ':''}납품 희망 <input type="date" data-odue="${i}" value="${o.due||''}" style="padding:1px 4px;font-size:11px"></div></div>
       <div class="eta">${eta}</div>
       <div class="ctl">
         <button class="btn sm" data-a="up" data-i="${i}">▲</button>
@@ -972,7 +1017,7 @@ function renderOrders(){
   const pwNeed2=kg1(poS.flakeRows.filter(r=>r.kind==='powder').reduce((a,r)=>a+r.kg,0));
   const pwStock2=kg1(S.flakes.filter(f=>f.kind==='powder').reduce((a,f)=>a+stockNow(f),0));
   $('#orderMatSummary').innerHTML=S.orders.some(o=>!o.done)
-    ?`📐 잔여 수량 기준 예상 소요 — 플레이크 <b>${flNeed}kg</b> · 파우더 <b>${pwNeed2}kg</b>
+    ?`📐 목표 수량 기준 예상 소요 — 플레이크 <b>${flNeed}kg</b> · 파우더 <b>${pwNeed2}kg</b>
       <span style="color:var(--sub)">(파우더 재고 ${pwStock2}kg${pwStock2<pwNeed2?' <span class="badge">부족</span>':''})</span>
       → 자세한 내용·발주는 <b>자재 발주 ♻️</b> 탭`
     :'';
@@ -982,9 +1027,8 @@ function renderOrders(){
   sync();$('#oProd').onchange=sync;
   if($('#reqNo')&&document.activeElement!==$('#reqNo'))$('#reqNo').value=reqNo();
   if($('#poNo')&&document.activeElement!==$('#poNo'))$('#poNo').value=poNoV();
-  /* 수신처 선택 (발주처 관리 목록) */
-  $('#reqSup').innerHTML='<option value="">수신처 선택…</option>'+S.suppliers.map(s=>`<option value="${s.id}" ${S.settings.reqSupId===s.id?'selected':''}>${esc(s.name)}</option>`).join('');
-  $('#reqSup').onchange=e=>{S.settings.reqSupId=e.target.value;save()};
+  /* 수신처 선택·신규 등록 + 담당자/연락처 바로 입력 (발주처 관리와 연동) */
+  bindSupPicker('reqSup','reqSupPerson','reqSupPhone',()=>S.settings.reqSupId,v=>{S.settings.reqSupId=v},'etc');
   /* 생산 발주 확정 버튼 */
   const pcb=$('#prodConfirmBtn');
   const hasCur=S.orders.some(o=>!o.done);
@@ -1005,8 +1049,8 @@ function renderOrders(){
       <span style="font-size:12px;color:var(--sub)">제작 ${b.orders.length}건</span>
       <button class="btn sm" data-hrestore="${b.id}" style="margin-left:auto">↩️ 복원 (수정·확정)</button>
       <button class="btn sm danger" data-hx="${b.id}">삭제</button></div>
-      <table class="t hist"><tr><th style="width:180px">품목</th><th class="r" style="width:64px">목표</th><th class="r" style="width:84px">당시 완료</th><th style="width:96px">납품 희망</th><th>메모</th></tr>
-      ${b.orders.map(o=>`<tr><td>${esc(o.name)}${o.finished?' ✅':''}</td><td class="r">${o.qty}개</td><td class="r">${o.done}개</td><td>${o.due?kdate(o.due):'-'}</td><td>${esc(o.note)}</td></tr>`).join('')}</table>
+      <table class="t hist"><tr><th style="width:200px">품목</th><th class="r" style="width:70px">수량</th><th style="width:96px">납품 희망</th><th>메모</th></tr>
+      ${b.orders.map(o=>`<tr><td>${esc(o.name)}${o.finished?' ✅':''}</td><td class="r">${o.qty}개</td><td>${o.due?kdate(o.due):'-'}</td><td>${esc(o.note)}</td></tr>`).join('')}</table>
     </div>`).join(''):'<p class="hint">아직 보관된 생산 발주가 없습니다.</p>';
   document.querySelectorAll('#histOrders [data-hx]').forEach(btn=>btn.onclick=()=>{
     if(confirm('이 이력을 삭제할까요?')){S.history=S.history.filter(b=>b.id!==btn.dataset.hx);render()}
@@ -1032,10 +1076,10 @@ function renderPO(){
   /* ── 발주서 카드 (협의 중 ↔ 확정) ── */
   const ab=S.poBatches.find(b=>b.id===S.settings.activeMatBatchId);
   let cardHtml='';
-  const s0=po.blendSups[0];
+  const psel=poSupSel();
   if(ab){ /* 확정 상태 */
     cardHtml=`<div class="sup" style="border:2px solid var(--amber)">
-      <div class="top"><span class="nm">🎨 ${esc(s0?s0.name:'춘천자활센터')}</span>
+      <div class="top"><span class="nm">🎨 ${esc(psel?psel.name:'수신처 미선택')}</span>
         <span class="badge" style="background:var(--green-l);color:var(--green)">✅ 확정 · ${kdate(ab.due)} 입고 예정</span>
         <span style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
           <label style="font-size:12px;display:flex;gap:4px;align-items:center">입고일 변경 <input type="date" id="abDue" value="${ab.due||''}"></label>
@@ -1049,19 +1093,61 @@ function renderPO(){
         <td class="r">${it.kg}kg</td></tr>`}).join('')}</table>
       <p class="hint" style="margin-top:4px">입고일·수량을 수정하면 캘린더의 📦 입고 예정도 같이 바뀝니다. 입고일 전에는 생산이 시작되지 않는 것으로 계산돼요.</p></div>`;
   }else{
-    cardHtml=(po.blendSups.map(sB=>`
-    <div class="sup"><div class="top"><span class="nm">🎨 ${esc(supLabel(sB))} <span class="badge">협의 중</span></span>
+    const eff=blendEff(po);
+    const effAct=eff.filter(r=>r.sacks>0);
+    cardHtml=`<div class="sup"><div class="top"><span class="nm">🎨 ${esc(psel?supLabel(psel):'수신처 미선택')} <span class="badge">협의 중</span></span>
       <span style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         <label style="font-size:12px;display:flex;gap:4px;align-items:center">입고 예정일 <input type="date" id="hbDue"></label>
         <button class="btn sm pri" id="matConfirmBtn">✅ 배합 발주 확정</button>
-        <button class="btn sm" data-bprint="${sB.id}">🖨 발주서 인쇄</button></span></div>
-      ${po.blendRows.length?`<table class="t"><tr><th>색상</th><th class="r">수량</th><th class="r">필요 kg</th><th class="r">발주 포대(${sk}kg)</th></tr>
-      ${po.blendRows.map(r=>`<tr><td>${esc(r.p.name)} - ${esc(r.c.name)}</td><td class="r">${r.qty}개</td><td class="r">${kg1(r.kg)}kg</td><td class="r"><b>${r.sacks}</b></td></tr>`).join('')}
-      <tr><td><b>합계</b></td><td class="r"><b>${po.blendRows.reduce((a,r)=>a+r.qty,0)}개</b></td><td class="r"><b>${kg1(po.blendRows.reduce((a,r)=>a+r.kg,0))}kg</b></td><td class="r"><b>${po.blendRows.reduce((a,r)=>a+r.sacks,0)}</b></td></tr></table>`
-      :'<p class="hint">진행 중인 생산 발주가 없습니다. 생산 발주 🏭 탭에서 제작 순서를 먼저 등록하세요.</p>'}</div>`).join(''))||'<p class="hint">색상 배합 발주처가 없습니다 (자재·재고 탭의 발주처 관리에서 등록).</p>';
+        <button class="btn sm" id="blendPrintBtn">🖨 발주서 인쇄</button></span></div>
+      ${eff.length?`<table class="t"><tr><th>색상</th><th class="r" style="width:110px">생산발주 수량</th><th class="r" style="width:100px">필요 kg</th><th class="r" style="width:120px">발주 포대(${sk}kg)</th><th style="width:150px"></th></tr>
+      ${eff.map(r=>`<tr style="${r.sacks>0?'':'opacity:.45'}">
+        <td><b>${esc(nameOf(r.pid,r.cid))}</b>${r.src==='extra'?' <span class="badge">직접 추가</span>':''}</td>
+        <td class="r">${r.qty!=null?r.qty+'개':'-'}</td>
+        <td class="r">${r.needKg!=null?kg1(r.needKg)+'kg':'-'}</td>
+        <td class="r"><input type="number" data-bsk="${r.key}" data-auto="${r.autoSacks===null?'':r.autoSacks}" value="${r.sacks}" min="0" style="width:64px"></td>
+        <td style="white-space:nowrap">${r.src==='auto'?(r.auto?'':'<span class="badge">✏️ 수정됨</span> <button class="btn sm" data-brst="'+r.key+'" title="자동 계산값으로 되돌리기">↺</button>'):'<button class="btn sm danger" data-bdel="'+r.xid+'">삭제</button>'}${r.sacks>0?'':' <span style="font-size:11px;color:var(--sub)">발주 제외</span>'}</td></tr>`).join('')}
+      <tr><td><b>합계</b></td><td></td><td></td><td class="r"><b>${effAct.reduce((a,r)=>a+r.sacks,0)}포대</b></td><td></td></tr></table>`
+      :'<p class="hint">생산 발주 🏭 탭에 제작 순서를 등록하면 자동으로 채워져요. 아래에서 직접 추가할 수도 있습니다.</p>'}
+      <div class="addform"><div class="ln">
+        <select id="bxProd"></select><select id="bxColor"></select>
+        <input type="number" id="bxSacks" placeholder="포대" min="1" style="width:70px">
+        <button class="btn pri sm" id="bxAdd">+ 직접 추가</button>
+        <button class="btn sm" id="bxReset" style="margin-left:auto">⟳ 생산발주 기준으로 재계산</button>
+      </div></div>
+      <p class="hint">생산 발주 수량 기준으로 자동 작성되고, 포대 수를 직접 고치면 ✏️ 표시가 붙어 생산 발주가 바뀌어도 덮어쓰지 않아요. 0으로 두면 발주에서 제외됩니다.</p></div>`;
   }
   $('#poSups').innerHTML=cardHtml;
-  document.querySelectorAll('#poSups [data-bprint]').forEach(b=>b.onclick=()=>printBlendSheet(supOf(b.dataset.bprint)));
+  bindSupPicker('poSup','poSupPerson','poSupPhone',()=>{const s=poSupSel();return s?s.id:''},v=>{S.settings.poSupId=v},'blend');
+  /* draft 편집 핸들러 */
+  document.querySelectorAll('#poSups [data-bsk]').forEach(inp=>inp.onchange=()=>{
+    const key=inp.dataset.bsk;const v=Math.max(0,Math.round(+inp.value||0));
+    const ex=S.blendExtra.find(x=>x.pid+'|'+x.cid===key);
+    if(ex)ex.sacks=v;
+    else if(inp.dataset.auto!==''&&v===+inp.dataset.auto)delete S.blendOv[key];
+    else S.blendOv[key]=v;
+    render();
+  });
+  document.querySelectorAll('#poSups [data-brst]').forEach(b=>b.onclick=()=>{delete S.blendOv[b.dataset.brst];render()});
+  document.querySelectorAll('#poSups [data-bdel]').forEach(b=>b.onclick=()=>{S.blendExtra=S.blendExtra.filter(x=>x.id!==b.dataset.bdel);render()});
+  const bxP=$('#bxProd');
+  if(bxP){
+    bxP.innerHTML=S.products.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')||'<option value="">제품 없음</option>';
+    const bxSync=()=>{const p=prodOf(bxP.value);$('#bxColor').innerHTML=p?p.colors.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join(''):''};
+    bxSync();bxP.onchange=bxSync;
+    $('#bxAdd').onclick=()=>{
+      const pid=bxP.value,cid=$('#bxColor').value,n=Math.max(0,Math.round(+$('#bxSacks').value||0));
+      if(!pid||!cid){alert('제품·색상을 선택해 주세요');return}
+      if(!n){alert('포대 수를 입력해 주세요');return}
+      const key=pid+'|'+cid;
+      if(poData().blendRows.some(r=>r.p.id===pid&&r.c.id===cid))S.blendOv[key]=n;
+      else{const ex=S.blendExtra.find(x=>x.pid===pid&&x.cid===cid);if(ex)ex.sacks=n;else S.blendExtra.push({id:uid(),pid,cid,sacks:n})}
+      $('#bxSacks').value='';render();
+    };
+    $('#bxReset').onclick=()=>{if(confirm('수동으로 고친 포대 수와 직접 추가한 행을 모두 지우고, 생산 발주 기준 자동 계산으로 되돌릴까요?')){S.blendOv={};S.blendExtra=[];render()}};
+  }
+  const bpb=$('#blendPrintBtn');
+  if(bpb)bpb.onclick=()=>printBlendSheet(poSupSel());
   /* 확정 상태 수정 핸들러 */
   const abDueEl=$('#abDue');
   if(abDueEl&&ab)abDueEl.onchange=()=>{
@@ -1091,11 +1177,10 @@ function renderPO(){
     const due=$('#hbDue').value;
     if(!due){alert('입고 예정일을 먼저 선택해 주세요.');return}
     if(due<=today){alert('입고일은 오늘 이후 날짜로 선택해 주세요.');return}
-    const sk2=sackKg();
-    const po2=poData();
-    if(!po2.blendRows.length){alert('진행 중인 생산 발주가 없어 발주할 배합이 없습니다.');return}
-    if(!confirm(`색상 배합 ${po2.blendRows.length}종(총 ${po2.blendRows.reduce((a,r)=>a+r.sacks,0)}포대)을 발주 확정할까요?\n→ ${kdate(due)} 입고 예정이 캘린더에 등록되고, 발주번호 ${poNoV()}(으)로 잠깁니다.`))return;
-    const batch={id:uid(),date:today,due,blend:true,items:po2.blendRows.map(r=>({pid:r.p.id,cid:r.c.id,sacks:r.sacks,kg:kg1(r.sacks*sk2)}))};
+    const items=blendEffItems();
+    if(!items.length){alert('발주할 배합이 없습니다. 생산 발주를 등록하거나 목록에 직접 추가해 주세요.');return}
+    if(!confirm(`색상 배합 ${items.length}종(총 ${items.reduce((a,r)=>a+r.sacks,0)}포대)을 발주 확정할까요?\n→ ${kdate(due)} 입고 예정이 캘린더에 등록되고, 발주번호 ${poNoV()}(으)로 잠깁니다.`))return;
+    const batch={id:uid(),date:today,due,blend:true,items};
     S.poBatches.unshift(batch);
     S.settings.activeMatBatchId=batch.id;
     S.settings.poNoCur=poNoV();
@@ -1121,11 +1206,10 @@ function supText(supId){
   return t;
 }
 const poDueK=()=>$('#poDue')&&$('#poDue').value?kdate($('#poDue').value):'';
-const blendItemsFor=po=>po.blendRows.map(r=>({pid:r.p.id,cid:r.c.id,sacks:r.sacks,kg:kg1(r.sacks*sackKg())}));
 function printBlendSheet(s){
-  const po=poData();
-  if(!po.blendRows.length){alert('진행 중인 제작 순서가 없습니다.');return}
-  $('#printSheet').innerHTML=blendSheetSet(s,blendItemsFor(po),poDueK());
+  const items=blendEffItems();
+  if(!items.length){alert('발주할 배합이 없습니다. 생산 발주를 등록하거나 목록에 직접 추가해 주세요.');return}
+  $('#printSheet').innerHTML=blendSheetSet(s,items,poDueK());
   window.print();
 }
 function printSupSheet(supId){
@@ -1386,9 +1470,9 @@ function archiveOrders(){
   const fcA=forecast();
   const batch={
     id:uid(),date:today,
-    orders:S.orders.map(o=>({pid:o.pid,cid:o.cid,name:nameOf(o.pid,o.cid),qty:o.qty,done:cumActual(o.pid,o.cid),due:o.due||'',note:o.note||'',finished:!!o.done})),
+    orders:S.orders.map(o=>({pid:o.pid,cid:o.cid,name:nameOf(o.pid,o.cid),qty:o.qty,done:0,due:o.due||'',note:o.note||'',finished:!!o.done})),
     flakeOrders:po.flakeRows.filter(r=>r.orderKg>0).map(r=>({name:r.name,kind:r.kind,sup:r.supId?(supOf(r.supId)||{}).name||'':'',kg:r.orderKg,sacks:r.sacks})),
-    blendOrders:po.blendRows.map(r=>({name:r.p.name+' - '+r.c.name,qty:r.qty,sacks:r.sacks}))
+    blendOrders:blendEff(po).filter(r=>r.sacks>0).map(r=>({name:nameOf(r.pid,r.cid),qty:r.qty||0,sacks:r.sacks}))
   };
   S.history.unshift(batch);
   /* 확정된 자동 일정을 캘린더 기록으로 고정 → 마감 후에도 캘린더·재고 차감 유지 */
@@ -1396,6 +1480,7 @@ function archiveOrders(){
     for(const[ds,arr]of fcA.days)arr.forEach(a=>S.records.push({id:uid(),date:ds,pid:a.pid,cid:a.cid,qty:a.qty}));
   }
   S.orders=[];
+  S.blendOv={};S.blendExtra=[]; /* 자재발주 수동 수정도 새 라운드로 */
   S.settings.prodConfirmed=false;
   S.settings.activeMatBatchId=''; /* 자재 발주 확정 상태도 새 라운드로 (입고 예정은 유지) */
   S.settings.reqNoLast=S.settings.reqNoCur||reqNo();S.settings.reqNoCur=''; /* 다음 주문번호 자동 생성 */
@@ -1516,7 +1601,7 @@ function blendSheetSet(sup,items,dueTxt){
   return sheet+flakePage(items)+recipePage(items);
 }
 function printBatchSheet(batch){
-  const s=S.suppliers.find(x=>x.type==='blend');
+  const s=poSupSel();
   $('#printSheet').innerHTML=blendSheetSet(s,batch.items,batch.due?kdate(batch.due):'');
   window.print();
 }
@@ -1563,10 +1648,10 @@ function ordersText(){
   else if(factoryLine())t+=`수신: ${factoryLine()}\n`;
   t+='\n';
   S.orders.filter(o=>!o.done).forEach((o,i)=>{
-    const r=fc.etas.get(o.id),done=cumActual(o.pid,o.cid);
-    t+=`${i+1}. ${nameOf(o.pid,o.cid)} ${o.qty}개 (완료 ${done} / 잔여 ${Math.max(0,o.qty-done)})`;
+    const r=fc.etas.get(o.id);
+    t+=`${i+1}. ${nameOf(o.pid,o.cid)} ${o.qty}개`;
     if(o.due)t+=` · 납품 희망 ${kdate(o.due)}`;
-    t+=r&&r.eta==='done'?' → 수량 달성\n':r&&r.eta?` → 예상 완료 ${kdate(r.eta)}\n`:'\n';
+    t+=r&&r.eta&&r.eta!=='done'?` → 예상 완료 ${kdate(r.eta)}\n`:'\n';
     if(o.note)t+=`   ※ ${o.note}\n`;
   });
   const hol=S.holidays.filter(h=>h>=today).sort().slice(0,8);
@@ -1593,10 +1678,7 @@ $('#printOrders').onclick=()=>{
 $('#printPO').onclick=()=>{
   const ab=S.poBatches.find(b=>b.id===S.settings.activeMatBatchId);
   if(ab){printBatchSheet(ab);return}
-  const po=poData();
-  if(!po.blendRows.length||!po.blendSups.length){alert('발주할 내용이 없습니다.');return}
-  $('#printSheet').innerHTML=po.blendSups.map(s=>blendSheetSet(s,blendItemsFor(po),poDueK())).join('<div style="page-break-after:always"></div>');
-  window.print();
+  printBlendSheet(poSupSel());
 };
 
 /* ===== events ===== */
@@ -1642,7 +1724,6 @@ $('#poNo').onchange=e=>{S.settings.poNoCur=e.target.value.trim();save()};
 $('#prodStart').value=S.settings.prodStart||'';
 $('#prodStart').onchange=e=>{S.settings.prodStart=e.target.value;render()};
 $('#poDue').onchange=()=>render();
-$('#poBasis').onchange=()=>render();
 $('#poStock').onchange=()=>render();
 [['coName','name'],['coPerson','person'],['coPhone','phone'],['coEmail','email'],
  ['coBizNo','bizNo'],['coCeo','ceo'],['coAddr','addr'],['coBizType','bizType'],['coBizItem','bizItem']].forEach(([id,k])=>{
