@@ -401,12 +401,6 @@ window.FIREBASE_CONFIG={
         <label class="fl">연락처<input type="text" id="coPhone"></label>
         <label class="fl">이메일<input type="text" id="coEmail"></label>
       </div>
-      <h2 class="sec" style="margin-top:18px">생산 공장 정보 (작업지시서 수신처)</h2>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
-        <label class="fl">공장명<input type="text" id="faName"></label>
-        <label class="fl">담당자<input type="text" id="faPerson"></label>
-        <label class="fl">연락처<input type="text" id="faPhone"></label>
-      </div>
       <h2 class="sec" style="margin-top:18px">우리 회사 담당자 (직원 등록 — 발주서 담당자 선택용)</h2>
       <div id="staffList"></div>
       <div class="toolbar" style="margin-top:8px">
@@ -586,7 +580,7 @@ S.blendExtra=S.blendExtra||[]; /* 자재발주 직접 추가 행 */
 }
 if(!S.settings._satDefault){S.settings.offSat=true;S.settings._satDefault=1} /* 토요일 기본 휴무 1회 적용 */
 S.settings.prodConfirmed=S.settings.prodConfirmed||false;
-S.settings.activeMatBatchId=S.settings.activeMatBatchId||'';
+S.settings.activeMatBatchId='';
 S.settings.factory=S.settings.factory||{name:'',person:'',phone:''};
 S.settings.staff=S.settings.staff||[];
 S.settings.reqStaffId=S.settings.reqStaffId||'';
@@ -770,7 +764,7 @@ const confirmedDays=()=>S.orders.some(o=>!o.done)?forecast().days:new Map();
 /* ===== 발주 계산 ===== */
 function poData(){
   const useStock=$('#poStock')?$('#poStock').checked:true;
-  const colorRows=[],blendRows=[],fm=new Map();const sk=sackKg();
+  const colorRows=[],blendRows=[],fm=new Map();const sk=sackKg();const _pbids=new Set(S.poBatches.map(b=>b.id));
   for(const o of S.orders){
     if(o.done)continue;
     const p=prodOf(o.pid),c=colorOf(p,o.cid);if(!p||!c)continue;
@@ -778,7 +772,9 @@ function poData(){
     if(qty<=0)continue;
     const kg=qty*(c.kgPer||0);
     colorRows.push({name:nameOf(o.pid,o.cid),qty,kgPer:c.kgPer||0,kg,powder:kg1(qty*(c.powderKg||0)),sacks:bags1(kg/sk),noRecipe:!(c.recipe&&c.recipe.length)});
-    blendRows.push({p,c,qty,kg,sacks:bags1(kg/sk)});
+    const _ordered=S.inbounds.filter(b=>b.pid===o.pid&&b.cid===o.cid&&_pbids.has(b.batchId)).reduce((a,b)=>a+b.kg,0);
+    const _remKg=Math.max(0,kg-_ordered);
+    blendRows.push({p,c,qty,kg:_remKg,sacks:bags1(_remKg/sk)});
     for(const e of c.recipe||[])fm.set(e.fid,(fm.get(e.fid)||0)+kg*e.r);
     const pw=powderId();
     if(c.powderKg&&pw)fm.set(pw,(fm.get(pw)||0)+qty*c.powderKg);
@@ -805,6 +801,7 @@ function blendEff(po){
   po.blendRows.forEach(r=>{
     const key=r.p.id+'|'+r.c.id;seen.add(key);
     const ov=S.blendOv[key];
+    if(ov===undefined && (r.sacks||0)<=0)return;
     rows.push({pid:r.p.id,cid:r.c.id,key,qty:r.qty,needKg:r.kg,autoSacks:r.sacks,
       sacks:(ov!==undefined)?ov:r.sacks,auto:ov===undefined,src:'auto'});
   });
@@ -1215,8 +1212,9 @@ function renderPO(){
     if(!confirm(`색상 배합 ${items.length}종(총 ${items.reduce((a,r)=>a+r.sacks,0)}포대)을 발주 확정할까요?\n→ ${kdate(due)} 입고 예정이 캘린더에 등록되고, 발주번호 ${poNoV()}(으)로 잠깁니다.`))return;
     const batch={id:uid(),date:today,due,blend:true,items};
     S.poBatches.unshift(batch);
-    S.settings.activeMatBatchId=batch.id;
-    S.settings.poNoCur=poNoV();
+    S.settings.activeMatBatchId='';
+    S.settings.poNoLast=poNoV();S.settings.poNoCur='';
+    S.blendOv={};S.blendExtra=[];
     batch.items.forEach(it=>S.inbounds.push({id:uid(),pid:it.pid,cid:it.cid,date:due,kg:it.kg,batchId:batch.id}));
     render();
   };
@@ -1334,7 +1332,7 @@ function renderFlakes(){
   /* ── 색상별 재고 (춘천 10kg 포대 기준) ── */
   const fcD=confirmedDays();
   const cols=trackedColors();
-  $('#colorStockList').innerHTML=cols.length?`<table class="t"><tr><th>색상</th><th class="r">현재 재고</th><th class="r">입고 예정</th><th class="r">생산 후 예상</th><th></th></tr>`
+  $('#colorStockList').innerHTML=cols.length?`<table class="t"><tr><th>색상</th><th class="r">현재 재고</th><th class="r">입고 예정</th><th class="r">생산 후 예상재고</th><th></th></tr>`
     +cols.map(x=>{
       const now=colorStock(x.pid,x.cid,today,null);
       const fut=kg1(S.inbounds.filter(b=>b.pid===x.pid&&b.cid===x.cid&&b.date>today).reduce((a,b)=>a+b.kg,0));
@@ -1342,9 +1340,9 @@ function renderFlakes(){
       const mb=manualBags(x.pid,x.cid);
       const mId='manual-'+x.pid+'-'+x.cid;const mInb=S.inbounds.find(b=>b.batchId===mId);
       return `<tr><td><b>${esc(nameOf(x.pid,x.cid))}</b></td>
-      <td class="r"><b style="${now<0?'color:var(--red)':''}">${now}kg</b> <span style="color:var(--sub)">(${bagTxt(now)})</span>${now<0?' ⚠️':''}</td>
-      <td class="r">${fut?`<span style="color:var(--amber);font-weight:700">+${fut}kg (${bagTxt(fut)})</span>`:'-'}</td>
-      <td class="r"><b style="${after<0?'color:var(--red)':''}">${after}kg</b> <span style="color:var(--sub)">(${bagTxt(after)})</span>${after<0?' ⚠️ 부족':''}</td>
+      <td class="r"><b style="${now<0?'color:var(--red)':''}">${now}kg</b>${now<0?' ⚠️':''}</td>
+      <td class="r">${fut?`<span style="color:var(--amber);font-weight:700">+${fut}kg</span>`:'-'}</td>
+      <td class="r"><b style="${after<0?'color:var(--red)':''}">${after}kg</b>${after<0?' ⚠️ 부족':''}</td>
       <td style="white-space:nowrap">${mb!==''?`<button class="btn sm" data-csedit="${x.pid}|${x.cid}">보유 ${mb}포대${mInb?' · '+kdate(mInb.date):''}</button> <button class="btn sm danger" data-csdel="${x.pid}|${x.cid}">삭제</button>`:''}</td></tr>`}).join('')+'</table>'
     :'<p class="hint">진행 중인 생산 발주나 입고가 있으면 색상별 재고가 표시됩니다. 아래에서 현재 보유 포대를 직접 입력할 수도 있어요.</p>';
   /* 직접 입력 드롭다운 */
@@ -1413,7 +1411,7 @@ function renderSettings(){
   $('#coBizNo').value=co.bizNo||'';$('#coCeo').value=co.ceo||'';
   $('#coAddr').value=co.addr||'';$('#coBizType').value=co.bizType||'';$('#coBizItem').value=co.bizItem||'';
   const fa=S.settings.factory;
-  $('#faName').value=fa.name||'';$('#faPerson').value=fa.person||'';$('#faPhone').value=fa.phone||'';
+  if($('#faName')){$('#faName').value=fa.name||'';$('#faPerson').value=fa.person||'';$('#faPhone').value=fa.phone||'';}
 }
 
 /* ===== 테스트 / 샘플 요청서 ===== */
@@ -1842,7 +1840,7 @@ $('#poStock').onchange=()=>render();
   $('#'+id).onchange=e=>{S.settings.co[k]=e.target.value.trim();save()};
 });
 [['faName','name'],['faPerson','person'],['faPhone','phone']].forEach(([id,k])=>{
-  $('#'+id).onchange=e=>{S.settings.factory[k]=e.target.value.trim();save()};
+  if($('#'+id))$('#'+id).onchange=e=>{S.settings.factory[k]=e.target.value.trim();save()};
 });
 $('#sackInput').onchange=e=>{S.settings.sack=Math.max(1,+e.target.value||10);render()};
 $('#offSun').onchange=e=>{S.settings.offSun=e.target.checked;render()};
