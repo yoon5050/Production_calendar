@@ -163,6 +163,7 @@ table.hist th,table.hist td{padding:5px 14px}
   .order{flex-wrap:wrap}
   .addform .ln{gap:8px}
 }
+.hint:not(#calNotice){display:none}
 </style>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
@@ -343,7 +344,7 @@ window.FIREBASE_CONFIG={
           <span style="font-size:12px;color:var(--sub)">재고 입력 →</span>
           <select id="csProd"></select>
           <select id="csColor"></select>
-          <input type="number" id="csBags" placeholder="포대" min="0" step="1" style="width:70px">
+          <input type="number" id="csBags" placeholder="포대" min="0" step="0.1" style="width:70px">
           <label class="fl" style="flex-direction:row;align-items:center;gap:4px">입고일<input type="date" id="csDate"></label>
           <button class="btn pri" id="csAdd">재고 반영</button>
         </div>
@@ -600,6 +601,7 @@ if(!S.suppliers.some(s=>s.type==='blend')){
 S.suppliers.forEach(s=>{if(s.type==='flake'||!s.type)s.type='etc'}); /* 구버전 발주처 유형 보정 */
 S.products.forEach(p=>p.colors.forEach(c=>{c.powderKg=c.powderKg||0;c.powderFid=c.powderFid||'p01';c.memo=c.memo||''}));
 S.ver=4;
+if(!S.settings._pnMig){S.products.forEach(p=>{if(!p.printName){if(p.name==='캐피')p.printName='의자(캐피)';else if(p.name==='에쿠스')p.printName='말(에쿠스)';else if(p.name.indexOf('드롭')>=0)p.printName='트리(드롭램프)';}});S.settings._pnMig=1;}
 /* 데이터 형태 보정 (가져오기/동기화 공용) */
 function ENS(d){
   d.inbounds=d.inbounds||[];d.tests=d.tests||[];d.suppliers=d.suppliers||[];d.history=d.history||[];
@@ -639,6 +641,7 @@ const prodOf=id=>S.products.find(p=>p.id===id);
 const colorOf=(p,cid)=>p&&p.colors.find(c=>c.id===cid);
 const flakeOf=id=>S.flakes.find(f=>f.id===id);
 const nameOf=(pid,cid)=>{const p=prodOf(pid);if(!p)return'(삭제된 제품)';const c=colorOf(p,cid);return p.name+(c?' - '+c.name:'')};
+const pPName=p=>p?(p.printName||p.name):'';const cPName=c=>c?(c.printName||c.name):'';const pcName=(pid,cid)=>{const p=prodOf(pid);if(!p)return'(삭제된 제품)';const c=colorOf(p,cid);return pPName(p)+(c?' - '+cPName(c):'')};
 const isOff=ds=>{
   if(S.holidays.includes(ds))return true;
   if(S.workdays.includes(ds))return false; /* 주말이지만 개별적으로 휴무 해제한 날 */
@@ -648,7 +651,8 @@ const isOff=ds=>{
 const cumActual=(pid,cid,upto)=>{const u=upto||today;return S.records.filter(r=>r.pid===pid&&r.cid===cid&&r.date<=u).reduce((a,r)=>a+r.qty,0)};
 const cumAll=upto=>S.records.filter(r=>r.date<=upto).reduce((a,r)=>a+r.qty,0);
 const sackKg=()=>S.settings.sack||10;
-const sackTxt=kg=>{const sk=sackKg();const s=kg/sk;return Number.isInteger(s)?`${s}포대`:`${kg1(kg)}kg`};
+const bags1=v=>Math.round((+v||0)*10)/10;
+const sackTxt=kg=>`${bags1(kg/sackKg())}포대`;
 const powderId=()=>{const f=S.flakes.find(f=>f.kind==='powder');return f?f.id:null};
 const consumedBetween=(fid,after,upto)=>{let t=0;const pw=powderId();for(const r of S.records){if(r.date>upto||(after&&r.date<=after))continue;const c=colorOf(prodOf(r.pid),r.cid);if(!c)continue;const e=(c.recipe||[]).find(e=>e.fid===fid);if(e)t+=r.qty*(c.kgPer||0)*e.r;if(fid===pw&&c.powderKg)t+=r.qty*c.powderKg}return t};
 const inboundBetween=(fid,after,upto)=>S.inbounds.filter(b=>b.fid===fid&&b.date<=upto&&(!after||b.date>after)).reduce((a,b)=>a+b.kg,0);
@@ -686,7 +690,7 @@ function setColorStockBags(pid,cid,bags,date){
   const kg=Math.max(0,bags)*sackKg();
   if(kg>0)S.inbounds.push({id:uid(),pid,cid,date:date||today,kg,batchId:id});
 }
-const manualBags=(pid,cid)=>{const id='manual-'+pid+'-'+cid;const b=S.inbounds.find(x=>x.batchId===id);return b?Math.round(b.kg/sackKg()):''};
+const manualBags=(pid,cid)=>{const id='manual-'+pid+'-'+cid;const b=S.inbounds.find(x=>x.batchId===id);return b?bags1(b.kg/sackKg()):''};
 const coLine=()=>{const c=S.settings.co||{};return [c.name,c.person&&'담당 '+c.person,c.phone,c.email].filter(Boolean).join(' · ')};
 const supOf=id=>S.suppliers.find(s=>s.id===id);
 const supLabel=s=>s?[s.name,s.person&&'담당 '+s.person,s.phone].filter(Boolean).join(' · '):'발주처 미지정';
@@ -726,7 +730,7 @@ function forecast(){
     let rem=o.qty;
     if(o.done||rem<=0){out.set(o.id,{eta:'done',rem:0});continue}
     const p=prodOf(o.pid);const cap=p?(p.cap||0):0;
-    if(!cap){out.set(o.id,{eta:null,rem});continue}
+    if(!cap){const dd=(o.due&&o.due>=startDs)?o.due:startDs;put(dd,o,rem);out.set(o.id,{eta:o.due||startDs,rem});continue}
     const r0=rem;
     while(rem>0&&guard++<36500){
       if(frac<=0){d=addD(d,1);frac=isOff(fmt(d))?0:1;continue}
@@ -753,8 +757,8 @@ function poData(){
     const qty=o.qty;
     if(qty<=0)continue;
     const kg=qty*(c.kgPer||0);
-    colorRows.push({name:nameOf(o.pid,o.cid),qty,kgPer:c.kgPer||0,kg,powder:kg1(qty*(c.powderKg||0)),sacks:Math.ceil(kg/sk),noRecipe:!(c.recipe&&c.recipe.length)});
-    blendRows.push({p,c,qty,kg,sacks:Math.ceil(kg/sk)});
+    colorRows.push({name:nameOf(o.pid,o.cid),qty,kgPer:c.kgPer||0,kg,powder:kg1(qty*(c.powderKg||0)),sacks:bags1(kg/sk),noRecipe:!(c.recipe&&c.recipe.length)});
+    blendRows.push({p,c,qty,kg,sacks:bags1(kg/sk)});
     for(const e of c.recipe||[])fm.set(e.fid,(fm.get(e.fid)||0)+kg*e.r);
     const pw=powderId();
     if(c.powderKg&&pw)fm.set(pw,(fm.get(pw)||0)+qty*c.powderKg);
@@ -763,7 +767,7 @@ function poData(){
     const f=flakeOf(fid);
     const st=f?stockNow(f):0;
     const orderKg=useStock?Math.max(0,kg1(kg-st)):kg1(kg);
-    return {fid,name:f?f.name:'(삭제된 자재)',kind:f?(f.kind||'flake'):'flake',supId:f&&supOf(f.supId)?f.supId:'',kg,stock:st,orderKg,sacks:Math.ceil(orderKg/sk)};
+    return {fid,name:f?f.name:'(삭제된 자재)',kind:f?(f.kind||'flake'):'flake',supId:f&&supOf(f.supId)?f.supId:'',kg,stock:st,orderKg,sacks:bags1(orderKg/sk)};
   }).sort((a,b)=>b.kg-a.kg);
   const sups=new Map();
   for(const r of flakeRows){
@@ -1069,7 +1073,7 @@ function renderOrders(){
 function renderPO(){
   const po=poData();const sk=sackKg();
   $('#sackLabel').textContent=sk;
-  $('#poFlakes').innerHTML=po.flakeRows.length?`<table class="t"><tr><th>자재</th><th>구분</th><th>발주처</th><th class="r">필요 kg</th><th class="r">현재 재고</th><th class="r">발주 필요</th><th class="r">포대(${sk}kg, 올림)</th></tr>`
+  $('#poFlakes').innerHTML=po.flakeRows.length?`<table class="t"><tr><th>자재</th><th>구분</th><th>발주처</th><th class="r">필요 kg</th><th class="r">현재 재고</th><th class="r">발주 필요</th><th class="r">포대(${sk}kg)</th></tr>`
     +po.flakeRows.map(r=>`<tr><td>${esc(r.name)}</td><td>${r.kind==='powder'?'파우더':'플레이크'}</td><td>${r.supId?esc(supOf(r.supId).name):'<span class="badge">미지정</span>'}</td><td class="r">${kg1(r.kg)}kg</td><td class="r">${r.stock}kg</td><td class="r"><b style="${r.orderKg>0?'color:var(--red)':''}">${r.orderKg}kg</b></td><td class="r">${r.sacks}</td></tr>`).join('')
     +`<tr><td><b>합계</b></td><td></td><td></td><td class="r"><b>${kg1(po.flakeRows.reduce((a,r)=>a+r.kg,0))}kg</b></td><td></td><td class="r"><b>${kg1(po.flakeRows.reduce((a,r)=>a+r.orderKg,0))}kg</b></td><td class="r"><b>${po.flakeRows.reduce((a,r)=>a+r.sacks,0)}</b></td></tr></table>`
     :'<p class="hint">배합이 등록된 품목이 있어야 계산됩니다.</p>';
@@ -1089,7 +1093,7 @@ function renderPO(){
       ${ab.items.map((it,i)=>{
         const label=it.pid?nameOf(it.pid,it.cid):(flakeOf(it.fid)?flakeOf(it.fid).name:'(삭제된 자재)');
         return `<tr><td>${esc(label)}</td>
-        <td class="r"><input type="number" data-absk="${i}" value="${it.sacks||''}" min="0" style="width:64px"></td>
+        <td class="r"><input type="number" data-absk="${i}" value="${it.sacks||''}" min="0" step="0.1" style="width:64px"></td>
         <td class="r">${it.kg}kg</td></tr>`}).join('')}</table>
       <p class="hint" style="margin-top:4px">입고일·수량을 수정하면 캘린더의 📦 입고 예정도 같이 바뀝니다. 입고일 전에는 생산이 시작되지 않는 것으로 계산돼요.</p></div>`;
   }else{
@@ -1108,7 +1112,7 @@ function renderPO(){
         <td><b>${esc(nameOf(r.pid,r.cid))}</b>${r.src==='extra'?' <span class="badge">직접 추가</span>':''}</td>
         <td class="r">${r.qty!=null?r.qty+'개':'-'}</td>
         <td class="r">${r.needKg!=null?kg1(r.needKg)+'kg':'-'}</td>
-        <td class="r"><input type="number" data-bsk="${r.key}" data-auto="${r.autoSacks===null?'':r.autoSacks}" value="${r.sacks}" min="0" style="width:64px"></td>
+        <td class="r"><input type="number" data-bsk="${r.key}" data-auto="${r.autoSacks===null?'':r.autoSacks}" value="${r.sacks}" min="0" step="0.1" style="width:64px"></td>
         <td style="white-space:nowrap">${r.src==='auto'
           ?(r.auto?'':'<span class="badge">✏️ 수정됨</span> <button class="btn sm" data-brst="'+r.key+'" title="자동 계산값으로 되돌리기">↺</button> ')+'<button class="btn sm danger" data-bexc="'+r.key+'" title="이번 발주에서 제외 (아래 제외 목록에서 복원 가능)">삭제</button>'
           :'<button class="btn sm danger" data-bdel="'+r.xid+'">삭제</button>'}</td></tr>`).join('')}
@@ -1116,7 +1120,7 @@ function renderPO(){
       ${excl.length?`<p class="hint" style="margin-top:6px">🚫 제외됨: ${excl.map(r=>`<b>${esc(nameOf(r.pid,r.cid))}</b> <button class="btn sm" data-brst="${r.key}">↺ 복원</button>`).join(' · ')}</p>`:''}`})()}
       <div class="addform"><div class="ln">
         <select id="bxProd"></select><select id="bxColor"></select>
-        <input type="number" id="bxSacks" placeholder="포대" min="1" style="width:70px">
+        <input type="number" id="bxSacks" placeholder="포대" min="0" step="0.1" style="width:70px">
         <button class="btn pri sm" id="bxAdd">+ 직접 추가</button>
         <button class="btn sm" id="bxReset" style="margin-left:auto">⟳ 생산발주 기준으로 재계산</button>
       </div></div>
@@ -1126,7 +1130,7 @@ function renderPO(){
   bindSupPicker('poSup','poSupPerson','poSupPhone',()=>{const s=poSupSel();return s?s.id:''},v=>{S.settings.poSupId=v},'blend');
   /* draft 편집 핸들러 */
   document.querySelectorAll('#poSups [data-bsk]').forEach(inp=>inp.onchange=()=>{
-    const key=inp.dataset.bsk;const v=Math.max(0,Math.round(+inp.value||0));
+    const key=inp.dataset.bsk;const v=Math.max(0,bags1(inp.value));
     const ex=S.blendExtra.find(x=>x.pid+'|'+x.cid===key);
     if(ex)ex.sacks=v;
     else if(inp.dataset.auto!==''&&v===+inp.dataset.auto)delete S.blendOv[key];
@@ -1142,7 +1146,7 @@ function renderPO(){
     const bxSync=()=>{const p=prodOf(bxP.value);$('#bxColor').innerHTML=p?p.colors.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join(''):''};
     bxSync();bxP.onchange=bxSync;
     $('#bxAdd').onclick=()=>{
-      const pid=bxP.value,cid=$('#bxColor').value,n=Math.max(0,Math.round(+$('#bxSacks').value||0));
+      const pid=bxP.value,cid=$('#bxColor').value,n=Math.max(0,bags1($('#bxSacks').value));
       if(!pid||!cid){alert('제품·색상을 선택해 주세요');return}
       if(!n){alert('포대 수를 입력해 주세요');return}
       const key=pid+'|'+cid;
@@ -1163,7 +1167,7 @@ function renderPO(){
   };
   if(ab)document.querySelectorAll('#poSups [data-absk]').forEach(i=>i.onchange=()=>{
     const it=ab.items[+i.dataset.absk];
-    it.sacks=Math.max(0,Math.round(+i.value||0));it.kg=kg1(it.sacks*sackKg());
+    it.sacks=Math.max(0,bags1(i.value));it.kg=kg1(it.sacks*sackKg());
     const inb=S.inbounds.find(x=>x.batchId===ab.id&&(it.pid?(x.pid===it.pid&&x.cid===it.cid):x.fid===it.fid));
     if(inb)inb.kg=it.kg;
     render();
@@ -1229,7 +1233,7 @@ function printSupSheet(supId){
 
 function renderProds(){
   $('#prodList').innerHTML=S.products.map(p=>`
-    <div class="prod"><div class="top"><span class="nm">${esc(p.name)}</span>
+    <div class="prod"><div class="top"><span class="nm">${esc(p.name)}</span><input type="text" data-ppn="${p.id}" value="${esc(p.printName||'')}" placeholder="인쇄명" style="width:130px;font-size:12px">
       <span class="cap">하루 생산량 <input type="number" data-cap="${p.id}" value="${p.cap||''}" placeholder="0" min="0">개/일</span>
       ${!p.cap?'<span class="badge">생산량 입력 필요</span>':''}
       <button class="btn sm danger" data-delp="${p.id}" style="margin-left:auto">제품 삭제</button></div>
@@ -1239,7 +1243,7 @@ function renderProds(){
         const sum=(c.recipe||[]).reduce((a,e)=>a+e.r,0);
         const open=openRecipe===p.id+'|'+c.id;
         return `<tr>
-          <td><b>${esc(c.name)}</b>${c.memo?' <span class="badge" title="'+esc(c.memo)+'">📝</span>':''}</td>
+          <td><b>${esc(c.name)}</b>${c.memo?' <span class="badge" title="'+esc(c.memo)+'">📝</span>':''}<input type="text" data-cpn="${p.id}|${c.id}" value="${esc(c.printName||'')}" placeholder="인쇄명" style="width:110px;font-size:11px;display:block;margin-top:3px"></td>
           <td class="r"><input type="number" data-tot="${p.id}|${c.id}" value="${kg1((c.kgPer||0)+(c.powderKg||0))||''}" step="0.1" min="0" style="font-weight:700"></td>
           <td class="r"><input type="number" data-kg="${p.id}|${c.id}" value="${c.kgPer||''}" step="0.1" min="0"></td>
           <td class="r"><input type="number" data-pw="${p.id}|${c.id}" value="${c.powderKg||''}" step="0.1" min="0"></td>
@@ -1252,6 +1256,8 @@ function renderProds(){
       <div style="margin-top:8px"><input type="text" data-addc="${p.id}" placeholder="색상 추가 후 Enter (예: 코카레드)" style="width:240px"></div>
     </div>`).join('')||'<p class="hint">제품을 추가하세요.</p>';
   document.querySelectorAll('[data-cap]').forEach(i=>i.onchange=()=>{prodOf(i.dataset.cap).cap=Math.max(0,+i.value||0);render()});
+  document.querySelectorAll('[data-ppn]').forEach(i=>i.onchange=()=>{prodOf(i.dataset.ppn).printName=i.value.trim();render()});
+  document.querySelectorAll('[data-cpn]').forEach(i=>i.onchange=()=>{const[pid,cid]=i.dataset.cpn.split('|');colorOf(prodOf(pid),cid).printName=i.value.trim();render()});
   document.querySelectorAll('[data-kg]').forEach(i=>i.onchange=()=>{const[pid,cid]=i.dataset.kg.split('|');colorOf(prodOf(pid),cid).kgPer=Math.max(0,+i.value||0);render()});
   /* 합계 입력 → 파우더 유지, 플레이크 자동 조정 / 파우더 입력 → 합계 유지, 플레이크 자동 조정 */
   document.querySelectorAll('[data-tot]').forEach(i=>i.onchange=()=>{const[pid,cid]=i.dataset.tot.split('|');const c=colorOf(prodOf(pid),cid);
@@ -1681,7 +1687,7 @@ function ordersText(){
   t+='\n';
   S.orders.filter(o=>!o.done).forEach((o,i)=>{
     const r=fc.etas.get(o.id);
-    t+=`${i+1}. ${nameOf(o.pid,o.cid)} ${o.qty}개`;
+    t+=`${i+1}. ${pcName(o.pid,o.cid)} ${o.qty}개`;
     if(o.due)t+=` · 납품 희망 ${kdate(o.due)}`;
     t+=r&&r.eta&&r.eta!=='done'?` → 예상 완료 ${kdate(r.eta)}\n`:'\n';
     if(o.note)t+=`   ※ ${o.note}\n`;
@@ -1701,13 +1707,13 @@ $('#printOrders').onclick=()=>{
   const recvSub=sup?recvSubOf(sup):recvSubOf(fa);
   if(!recv&&!confirm('수신처가 선택되지 않았어요. 수신인 없이 인쇄할까요?\n(툴바의 "수신처"에서 발주처 관리에 등록된 곳을 선택할 수 있어요)'))return;
   const rows=pend.map(o=>{const p=prodOf(o.pid),c=colorOf(p,o.cid);
-    return {name:esc(p?p.name:'(삭제된 제품)'),color:esc(c?c.name:'?'),spec:'-',unit:'개',qty:String(o.qty),due:o.due?kdate(o.due):'',note:esc(o.note||'')}});
+    return {name:esc(p?pPName(p):'(삭제된 제품)'),color:esc(c?cPName(c):'?'),spec:'-',unit:'개',qty:String(o.qty),due:o.due?kdate(o.due):'',note:esc(o.note||'')}});
   /* 제품별 1개 제작 시 투입량 — 제품·배합 데이터에서 자동 작성 */
   const seenM=new Set();const matRows=[];
   pend.forEach(o=>{const key=o.pid+'|'+o.cid;if(seenM.has(key))return;seenM.add(key);
     const p=prodOf(o.pid),c=colorOf(p,o.cid);if(!c)return;
     const fg=Math.round((c.kgPer||0)*1000),pg=Math.round((c.powderKg||0)*1000);
-    matRows.push(`<tr><td style="${PD}text-align:center">${esc(p.name)}</td><td style="${PD}text-align:center">${esc(c.name)}</td>
+    matRows.push(`<tr><td style="${PD}text-align:center">${esc(pPName(p))}</td><td style="${PD}text-align:center">${esc(cPName(c))}</td>
       <td style="${PD}text-align:right">${fg?fg.toLocaleString():'-'}</td><td style="${PD}text-align:right">${pg?pg.toLocaleString():'-'}</td>
       <td style="${PD}text-align:right;font-weight:700">${(fg+pg)?(fg+pg).toLocaleString():'-'}</td></tr>`);
   });
@@ -1752,7 +1758,7 @@ $('#addFlake').onclick=()=>{const v=$('#fName').value.trim();if(!v)return;
   S.flakes.push({id:uid(),name:v,kind:'powder',supId:'',stock:st,stockDate:($('#fDate').value||(st?today:null))});
   $('#fName').value='';$('#fStock').value='';$('#fDate').value='';render()};
 $('#csAdd').onclick=()=>{
-  const pid=$('#csProd').value,cid=$('#csColor').value,bags=Math.max(0,Math.round(+$('#csBags').value||0));
+  const pid=$('#csProd').value,cid=$('#csColor').value,bags=Math.max(0,bags1($('#csBags').value));
   if(!pid||!cid){alert('제품·색상을 선택해 주세요');return}
   setColorStockBags(pid,cid,bags,$('#csDate').value||today);$('#csBags').value='';$('#csDate').value='';render();
 };
@@ -2023,7 +2029,7 @@ initFB();
     var addable=sh.some(function(it){ var m=matchProd(it); return m&&recQty(it,m)>0; });
     var rows=sh.map(function(it){
       var m=matchProd(it); var rec=recQty(it,m);
-      var matchTxt=m?(esc(nameOf(m.pid,m.cid))+(m.manual?'':' <span class="badge">자동</span>')):'<span class="badge" style="background:var(--red-l);color:var(--red)">미매핑</span>';
+      var matchTxt=m?(esc(nameOf(m.pid,m.cid))+(m.manual?'':' <span class="badge">자동</span>')):('<select data-mdmapsel="'+it.mdId+'">'+optionsHtml('')+'</select>');
       var btn=m?(rec>0?('<button class="btn sm pri" data-mdadd="'+it.mdId+'">추가</button>'):'<span style="color:var(--sub);font-size:12px">발주에 있음</span>'):'';
       return '<tr><td>'+esc(nameOfMd(it))+'</td><td class="r">'+it.stock+' / '+it.safe+'</td><td class="r"><b style="color:var(--red)">'+it.need+'</b></td><td>'+matchTxt+'</td><td class="r">'+(m?rec:'-')+'</td><td>'+btn+'</td></tr>';
     }).join('');
@@ -2043,6 +2049,7 @@ initFB();
     var rb=document.getElementById('mdRefresh'); if(rb)rb.onclick=mdFetch;
     var aa=document.getElementById('mdAddAll'); if(aa)aa.onclick=addAll;
     el.querySelectorAll('[data-mdadd]').forEach(function(b){ b.onclick=function(){ var it=shortages().find(function(x){return x.mdId===b.dataset.mdadd;}); if(it)addOne(it); }; });
+    el.querySelectorAll('[data-mdmapsel]').forEach(function(s){ s.onchange=function(){ var id=s.dataset.mdmapsel, v=s.value; if(v){var a=v.split('|');S.mdlink.map[id]={pid:a[0],cid:a[1]};}else{delete S.mdlink.map[id];} save(); renderAll(); }; });
   }
 
   function optionsHtml(sel){
@@ -2065,11 +2072,7 @@ initFB();
       +((mdErr&&!mdDB)?('<div style="background:var(--red-l);border:1px solid var(--red);border-radius:8px;padding:10px 12px;font-size:12.5px;line-height:1.6">'
         +'<b>읽기 권한 설정(최초 1회)</b> — Supabase → SQL Editor에서 아래를 실행하면 production이 md 재고를 읽을 수 있어요:'
         +'<code style="display:block;background:#fff;padding:6px 8px;border-radius:6px;margin:6px 0;white-space:pre-wrap">drop policy if exists "prod_read" on lowlit_workspace;\ncreate policy "prod_read" on lowlit_workspace for select using (true);</code>'
-        +'⚠️ 이 SQL은 <b>읽기 권한만</b> 추가하며 md의 저장 기능에는 영향을 주지 않습니다. 공개 anon 키로 재고 조회를 허용하므로(내부 도구 기준) 노출이 우려되면 production 로그인 방식(옵션 A)으로 전환할 수 있어요.</div>'):'')
-      +'<h2 class="sec" style="margin-top:16px">제품 매핑 <span class="badge">부족 품목 '+sh.length+'</span></h2>'
-      +(sh.length?('<table class="t"><tr><th>md 완제품</th><th style="width:280px">production 제품·색상</th><th>매칭</th></tr>'+maprows+'</table>'
-        +'<p class="hint">색상명이 같으면 자동 매칭됩니다. 이름이 달라 매칭이 안 되면 위에서 직접 지정하세요. 부자재는 md 내부에서 처리되어 여기 나타나지 않습니다.</p>')
-        :'<p class="hint">현재 부족 품목이 없습니다. (md 연결 후 부족이 생기면 자동으로 표시됩니다.)</p>');
+        +'⚠️ 이 SQL은 <b>읽기 권한만</b> 추가하며 md의 저장 기능에는 영향을 주지 않습니다. 공개 anon 키로 재고 조회를 허용하므로(내부 도구 기준) 노출이 우려되면 production 로그인 방식(옵션 A)으로 전환할 수 있어요.</div>'):'');
     var r2=document.getElementById('mdRefresh2'); if(r2)r2.onclick=mdFetch;
     el.querySelectorAll('[data-mdmap]').forEach(function(s){ s.onchange=function(){ var id=s.dataset.mdmap; var v=s.value; if(v){ var a=v.split('|'); S.mdlink.map[id]={pid:a[0],cid:a[1]}; } else { delete S.mdlink.map[id]; } save(); renderAll(); }; });
   }
