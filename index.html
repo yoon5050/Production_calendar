@@ -1476,6 +1476,13 @@ function commitProdOrders(){
   const startTxt=S.settings.prodStart?kdate(S.settings.prodStart):'오늘';
   if(!confirm('생산 발주를 확정할까요?\n→ 생산 시작일('+startTxt+') 기준 일정이 캘린더에 기록되고,\n지난 생산 발주로 보관된 뒤 새 발주가 시작됩니다.\n(자재 발주와는 별개로 진행됩니다)'))return;
   const fcA=forecast();
+  try{ if(window.__mdPushSchedule){
+    var _rev={}, _mp=(S.mdlink&&S.mdlink.map)||{};
+    for(var _k in _mp){ if(_mp[_k]&&_mp[_k].pid)_rev[_mp[_k].pid+'|'+_mp[_k].cid]=_k; }
+    var _ent=S.orders.filter(o=>!o.done).map(o=>{ var _r=fcA.etas.get(o.id); var _p=prodOf(o.pid),_c=colorOf(_p,o.cid);
+      return {id:uid(),mdId:_rev[o.pid+'|'+o.cid]||'',name:_p?_p.name:'',color:_c?_c.name:'',qty:o.qty,date:o.due||(_r&&_r.eta&&_r.eta!=='done'?_r.eta:''),at:today}; });
+    window.__mdPushSchedule(_ent);
+  } }catch(e){}
   const batch={id:uid(),date:today,start:S.settings.prodStart||today,
     orders:S.orders.map(o=>({pid:o.pid,cid:o.cid,name:nameOf(o.pid,o.cid),qty:o.qty,done:0,due:o.due||'',note:o.note||'',finished:!!o.done})),
     flakeOrders:[],blendOrders:[]};
@@ -2078,6 +2085,17 @@ initFB();
   }
 
   function renderAll(){ try{renderAlarm();}catch(e){} try{renderSettings();}catch(e){} try{updateBadge();}catch(e){} }
+
+  /* production 확정 시 생산 예정일을 공유 테이블(production_schedule)에 기록 → md가 읽어 표시 */
+  function mdPushSchedule(entries){
+    var c=mdClient(); if(!c||!entries||!entries.length)return;
+    c.from('production_schedule').select('data').eq('id','latest').maybeSingle().then(function(res){
+      var arr=(res&&res.data&&res.data.data)||[]; if(!Array.isArray(arr))arr=[];
+      arr=arr.concat(entries); if(arr.length>200)arr=arr.slice(arr.length-200);
+      c.from('production_schedule').upsert({id:'latest',updated_at:new Date().toISOString(),data:arr}).then(function(){},function(){});
+    },function(){ c.from('production_schedule').upsert({id:'latest',data:entries}).then(function(){},function(){}); });
+  }
+  window.__mdPushSchedule = mdPushSchedule;
 
   /* init */
   ensureLink();
