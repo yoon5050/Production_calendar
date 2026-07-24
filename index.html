@@ -1222,10 +1222,15 @@ function renderPO(){
   $('#histPO').innerHTML=S.poBatches.length?S.poBatches.map(b=>`
     <div class="sup"><div class="top"><span class="nm">📅 ${kdate(b.date)} 자재 발주${b.due?' · 입고 '+kdate(b.due):''}</span>
       <span style="font-size:12px;color:var(--sub)">배합 ${(b.items||[]).length}종</span>
-      <button class="btn sm danger" data-pox="${b.id}" style="margin-left:auto">삭제</button></div>
+      <button class="btn sm" data-pop="${b.id}" style="margin-left:auto">🖨 인쇄</button>
+      <button class="btn sm danger" data-pox="${b.id}">삭제</button></div>
       <table class="t hist"><tr><th style="width:220px">색상</th><th class="r" style="width:70px">포대</th><th class="r" style="width:90px">kg</th></tr>
       ${(b.items||[]).map(it=>`<tr><td>${esc(it.pid?nameOf(it.pid,it.cid):(flakeOf(it.fid)||{}).name||'?')}</td><td class="r">${it.sacks||'-'}</td><td class="r">${it.kg}kg</td></tr>`).join('')}</table>
     </div>`).join(''):'<p class="hint">아직 확정된 자재 발주가 없습니다.</p>';
+  document.querySelectorAll('#histPO [data-pop]').forEach(btn=>btn.onclick=()=>{
+    const b=S.poBatches.find(x=>x.id===btn.dataset.pop);
+    if(b)printBatchSheet(b);
+  });
   document.querySelectorAll('#histPO [data-pox]').forEach(btn=>btn.onclick=()=>{
     if(confirm('이 자재 발주를 삭제할까요? 캘린더의 입고 예정도 함께 지워집니다.')){
       const id=btn.dataset.pox;
