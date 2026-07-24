@@ -719,9 +719,7 @@ function forecast(){
   const out=new Map(),days=new Map();
   const put=(ds,o,qty)=>{if(!days.has(ds))days.set(ds,[]);days.get(ds).push({pid:o.pid,cid:o.cid,qty})};
   let startDs=today;
-  if(S.settings.prodStart&&S.settings.prodStart>startDs)startDs=S.settings.prodStart;
-  const _ab=S.poBatches.find(b=>b.id===S.settings.activeMatBatchId);
-  if(_ab&&_ab.due&&_ab.due>startDs)startDs=_ab.due; /* 자재 입고 전에는 생산 시작 불가 */
+  if(S.settings.prodStart)startDs=S.settings.prodStart; /* 생산 시작일이 있으면 그대로 사용 — 과거 날짜 허용, 자재발주와 독립 */
   /* 우선순위(목록 순서)대로 한 줄로 생산 — 제품이 바뀌면 남은 가동분만큼 그 제품 생산량으로 환산 */
   let d=parse(startDs),frac=isOff(startDs)?0:1,guard=0;
   for(const o of S.orders){
@@ -743,7 +741,7 @@ function forecast(){
   return {etas:out,days};
 }
 /* 캘린더 반영용 — 생산 발주가 '확정'된 경우에만 자동 일정 노출 */
-const confirmedDays=()=>S.settings.prodConfirmed?forecast().days:new Map();
+const confirmedDays=()=>S.orders.some(o=>!o.done)?forecast().days:new Map();
 
 /* ===== 발주 계산 ===== */
 function poData(){
@@ -914,9 +912,9 @@ function renderCal(){
   const capMissing=[...new Set(S.orders.filter(o=>!o.done).map(o=>prodOf(o.pid)).filter(p=>p&&!p.cap).map(p=>p.name))];
   const notices=[];
   if(capMissing.length)notices.push(`⚠️ <b>${capMissing.map(esc).join(', ')}</b>의 하루 생산량이 입력되지 않아 일정을 계산할 수 없어요 (제품·배합 탭).`);
-  if(S.orders.some(o=>!o.done)&&!S.settings.prodConfirmed)notices.push(`📋 생산 발주가 아직 <b>협의 중</b> 상태예요. <b>생산 발주 🏭 탭에서 "생산 발주 확정"</b>을 누르면 캘린더에 일정이 표시됩니다.`);
+  if(S.orders.some(o=>!o.done)&&!S.settings.prodStart)notices.push(`🗓 생산 발주 🏭 탭에서 <b>생산 시작일</b>을 지정하면 그날부터 일정이 계산돼요 (미지정 시 오늘부터).`);
   const abN=S.poBatches.find(b=>b.id===S.settings.activeMatBatchId);
-  if(abN&&abN.due>today&&S.orders.some(o=>!o.done))notices.push(`📦 자재 입고 예정 ${kdate(abN.due)} — 입고 전에는 생산이 시작되지 않는 것으로 계산돼요.`);
+  if(abN&&abN.due>today)notices.push(`📦 자재 입고 예정 ${kdate(abN.due)} (자재 발주 기준 · 생산 일정과는 별개)`);
   $('#calNotice').innerHTML=notices.join('<br>');
 }
 
@@ -1042,16 +1040,9 @@ function renderOrders(){
   const pcb=$('#prodConfirmBtn');
   const hasCur=S.orders.some(o=>!o.done);
   pcb.style.display=hasCur?'':'none';
-  pcb.className='btn'+(S.settings.prodConfirmed?'':' pri');
-  pcb.textContent=S.settings.prodConfirmed?'✅ 확정됨 · 캘린더 반영 중 (해제)':'✅ 생산 발주 확정 → 캘린더 반영';
-  pcb.onclick=()=>{
-    if(S.settings.prodConfirmed){
-      if(confirm('생산 발주 확정을 해제할까요? 캘린더의 자동 일정 표시가 사라집니다.')){S.settings.prodConfirmed=false;render()}
-    }else{
-      if(confirm('생산 발주를 확정할까요?\n→ 제품별 하루 생산량과 생산 시작일 기준으로 캘린더에 일정이 표시되고, 주문번호 '+reqNo()+'(으)로 잠깁니다.')){
-        S.settings.prodConfirmed=true;S.settings.reqNoCur=reqNo();render()}
-    }
-  };
+  pcb.className='btn pri';
+  pcb.textContent='✅ 생산 발주 확정 → 캘린더 기록·지난 발주 보관';
+  pcb.onclick=commitProdOrders;
   /* 지난 생산 발주 목록 */
   $('#histOrders').innerHTML=S.history.length?S.history.map(b=>`
     <div class="sup"><div class="top"><span class="nm">📅 ${kdate(b.date)} 발주분</span>
@@ -1191,7 +1182,6 @@ function renderPO(){
     }
     const due=$('#hbDue').value;
     if(!due){alert('입고 예정일을 먼저 선택해 주세요.');return}
-    if(due<=today){alert('입고일은 오늘 이후 날짜로 선택해 주세요.');return}
     const items=blendEffItems();
     if(!items.length){alert('발주할 배합이 없습니다. 생산 발주를 등록하거나 목록에 직접 추가해 주세요.');return}
     if(!confirm(`색상 배합 ${items.length}종(총 ${items.reduce((a,r)=>a+r.sacks,0)}포대)을 발주 확정할까요?\n→ ${kdate(due)} 입고 예정이 캘린더에 등록되고, 발주번호 ${poNoV()}(으)로 잠깁니다.`))return;
@@ -1478,6 +1468,25 @@ function printRecipesAll(){
 }
 
 /* ===== 발주 마감 → 이력 보관 ===== */
+/* ===== 생산 발주 확정 → 캘린더 일정 기록 + 지난 생산 발주 보관 + 새 라운드 (자재발주와 독립) ===== */
+function commitProdOrders(){
+  if(!S.orders.some(o=>!o.done)){alert('확정할 제작 순서가 없습니다.');return}
+  const capMiss=[...new Set(S.orders.filter(o=>!o.done).map(o=>prodOf(o.pid)).filter(p=>p&&!p.cap).map(p=>p.name))];
+  if(capMiss.length&&!confirm('⚠️ '+capMiss.join(', ')+'의 하루 생산량이 없어 일정이 계산되지 않아요. 그래도 확정할까요?'))return;
+  const startTxt=S.settings.prodStart?kdate(S.settings.prodStart):'오늘';
+  if(!confirm('생산 발주를 확정할까요?\n→ 생산 시작일('+startTxt+') 기준 일정이 캘린더에 기록되고,\n지난 생산 발주로 보관된 뒤 새 발주가 시작됩니다.\n(자재 발주와는 별개로 진행됩니다)'))return;
+  const fcA=forecast();
+  const batch={id:uid(),date:today,start:S.settings.prodStart||today,
+    orders:S.orders.map(o=>({pid:o.pid,cid:o.cid,name:nameOf(o.pid,o.cid),qty:o.qty,done:0,due:o.due||'',note:o.note||'',finished:!!o.done})),
+    flakeOrders:[],blendOrders:[]};
+  for(const[ds,arr]of fcA.days)arr.forEach(a=>S.records.push({id:uid(),date:ds,pid:a.pid,cid:a.cid,qty:a.qty}));
+  S.history.unshift(batch);
+  S.orders=[];
+  S.settings.prodConfirmed=false;
+  S.settings.reqNoLast=S.settings.reqNoCur||reqNo();S.settings.reqNoCur='';
+  render();
+  alert('확정 완료 — 캘린더에 일정이 기록되고 ‘지난 생산 발주’에 보관했어요. 새 발주를 시작하세요.');
+}
 function archiveOrders(){
   if(!S.orders.length){alert('보관할 제작 순서가 없습니다.');return}
   if(!confirm('현재 제작 순서와 자재 발주 내용을 이력에 보관하고, 제작 순서를 비울까요?\n'+(S.settings.prodConfirmed?'확정된 생산 일정은 캘린더에 기록으로 남고, ':'')+'재고·입고 일정은 그대로 유지됩니다.'))return;
