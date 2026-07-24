@@ -1082,7 +1082,7 @@ function renderOrders(){
     if(b)printProdBatch(b);
   });
   document.querySelectorAll('#histOrders [data-hx]').forEach(btn=>btn.onclick=()=>{
-    if(confirm('이 이력을 삭제하고, 이 발주로 잡힌 캘린더 일정도 함께 지울까요?')){const id=btn.dataset.hx;const bb=S.history.find(x=>x.id===id);S.records=S.records.filter(r=>{if(r.batchId)return r.batchId!==id;if(bb&&bb.start&&bb.orders&&bb.orders.some(o=>o.pid===r.pid&&o.cid===r.cid)&&r.date>=bb.start)return false;return true});S.history=S.history.filter(b=>b.id!==id);render()}
+    if(confirm('이 이력을 삭제하고, 이 발주로 잡힌 캘린더 일정도 함께 지울까요?\n(md의 생산 예정에서도 함께 삭제됩니다)')){const id=btn.dataset.hx;const bb=S.history.find(x=>x.id===id);S.records=S.records.filter(r=>{if(r.batchId)return r.batchId!==id;if(bb&&bb.start&&bb.orders&&bb.orders.some(o=>o.pid===r.pid&&o.cid===r.cid)&&r.date>=bb.start)return false;return true});S.history=S.history.filter(b=>b.id!==id);try{if(window.__mdRemoveSchedule)window.__mdRemoveSchedule(id);}catch(e){}render()}
   });
   document.querySelectorAll('#histOrders [data-hrestore]').forEach(btn=>btn.onclick=()=>{
     const b=S.history.find(x=>x.id===btn.dataset.hrestore);if(!b)return;
@@ -1534,14 +1534,15 @@ function commitProdOrders(){
   const startTxt=S.settings.prodStart?kdate(S.settings.prodStart):'오늘';
   if(!confirm('생산 발주를 확정할까요?\n→ 생산 시작일('+startTxt+') 기준 일정이 캘린더에 기록되고,\n지난 생산 발주로 보관된 뒤 새 발주가 시작됩니다.\n(자재 발주와는 별개로 진행됩니다)'))return;
   const fcA=forecast();
+  const _bid=uid();
   try{ if(window.__mdPushSchedule){
     var _rev={}, _mp=(S.mdlink&&S.mdlink.map)||{};
     for(var _k in _mp){ if(_mp[_k]&&_mp[_k].pid)_rev[_mp[_k].pid+'|'+_mp[_k].cid]=_k; }
     var _ent=S.orders.filter(o=>!o.done).map(o=>{ var _r=fcA.etas.get(o.id); var _p=prodOf(o.pid),_c=colorOf(_p,o.cid);
-      return {id:uid(),mdId:_rev[o.pid+'|'+o.cid]||'',name:_p?_p.name:'',color:_c?_c.name:'',qty:o.qty,date:o.due||(_r&&_r.eta&&_r.eta!=='done'?_r.eta:''),at:today}; });
+      return {id:uid(),batchId:_bid,mdId:_rev[o.pid+'|'+o.cid]||'',name:_p?_p.name:'',color:_c?_c.name:'',qty:o.qty,date:o.due||(_r&&_r.eta&&_r.eta!=='done'?_r.eta:''),at:today}; });
     window.__mdPushSchedule(_ent);
   } }catch(e){}
-  const batch={id:uid(),date:today,start:S.settings.prodStart||today,
+  const batch={id:_bid,date:today,start:S.settings.prodStart||today,
     orders:S.orders.map(o=>({pid:o.pid,cid:o.cid,name:nameOf(o.pid,o.cid),qty:o.qty,done:0,due:o.due||'',note:o.note||'',finished:!!o.done})),
     flakeOrders:[],blendOrders:[]};
   for(const[ds,arr]of fcA.days)arr.forEach(a=>S.records.push({id:uid(),date:ds,pid:a.pid,cid:a.cid,qty:a.qty,batchId:batch.id}));
@@ -2165,6 +2166,17 @@ initFB();
     },function(){ c.from('production_schedule').upsert({id:'latest',data:entries}).then(function(){},function(){}); });
   }
   window.__mdPushSchedule = mdPushSchedule;
+  /* 지난 생산 발주 삭제 시 공유 테이블에서 해당 배치의 생산 예정도 제거 → md에서도 사라짐 */
+  function mdRemoveSchedule(batchId){
+    var c=mdClient(); if(!c||!batchId)return;
+    c.from('production_schedule').select('data').eq('id','latest').maybeSingle().then(function(res){
+      var arr=(res&&res.data&&res.data.data)||[]; if(!Array.isArray(arr))return;
+      var next=arr.filter(function(e){ return !e||e.batchId!==batchId; });
+      if(next.length===arr.length)return;
+      c.from('production_schedule').upsert({id:'latest',updated_at:new Date().toISOString(),data:next}).then(function(){},function(){});
+    },function(){});
+  }
+  window.__mdRemoveSchedule = mdRemoveSchedule;
 
   /* init */
   ensureLink();
