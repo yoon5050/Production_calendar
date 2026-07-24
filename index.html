@@ -1071,11 +1071,16 @@ function renderOrders(){
   $('#histOrders').innerHTML=S.history.length?S.history.map(b=>`
     <div class="sup"><div class="top"><span class="nm">📅 ${kdate(b.date)} 발주분</span>
       <span style="font-size:12px;color:var(--sub)">제작 ${b.orders.length}건</span>
-      <button class="btn sm" data-hrestore="${b.id}" style="margin-left:auto">↩️ 복원 (수정·확정)</button>
+      <button class="btn sm" data-hprint="${b.id}" style="margin-left:auto">🖨 인쇄</button>
+      <button class="btn sm" data-hrestore="${b.id}">↩️ 복원 (수정·확정)</button>
       <button class="btn sm danger" data-hx="${b.id}">삭제</button></div>
       <table class="t hist"><tr><th style="width:200px">품목</th><th class="r" style="width:70px">수량</th><th style="width:96px">납품 희망</th><th>메모</th></tr>
       ${b.orders.map(o=>`<tr><td>${esc(o.name)}${o.finished?' ✅':''}</td><td class="r">${o.qty}개</td><td>${o.due?kdate(o.due):'-'}</td><td>${esc(o.note)}</td></tr>`).join('')}</table>
     </div>`).join(''):'<p class="hint">아직 보관된 생산 발주가 없습니다.</p>';
+  document.querySelectorAll('#histOrders [data-hprint]').forEach(btn=>btn.onclick=()=>{
+    const b=S.history.find(x=>x.id===btn.dataset.hprint);
+    if(b)printProdBatch(b);
+  });
   document.querySelectorAll('#histOrders [data-hx]').forEach(btn=>btn.onclick=()=>{
     if(confirm('이 이력을 삭제하고, 이 발주로 잡힌 캘린더 일정도 함께 지울까요?')){const id=btn.dataset.hx;const bb=S.history.find(x=>x.id===id);S.records=S.records.filter(r=>{if(r.batchId)return r.batchId!==id;if(bb&&bb.start&&bb.orders&&bb.orders.some(o=>o.pid===r.pid&&o.cid===r.cid)&&r.date>=bb.start)return false;return true});S.history=S.history.filter(b=>b.id!==id);render()}
   });
@@ -1745,16 +1750,14 @@ function ordersText(){
 }
 $('#copyOrders').onclick=()=>{navigator.clipboard.writeText(ordersText()).then(()=>alert('복사 완료! 메신저에 붙여넣으세요.')).catch(()=>prompt('아래 내용을 복사하세요',ordersText()))};
 
-$('#printOrders').onclick=()=>{
-  const pend=S.orders.filter(o=>!o.done);
-  if(!pend.length){alert('진행 중인 제작 순서가 없습니다.');return}
+function prodReqSheetHTML(pend,opts){
+  opts=opts||{};
   const sup=supOf(S.settings.reqSupId);
   const fa=S.settings.factory||{};
   const recv=sup?esc(sup.name):esc(fa.name||'');
   const recvSub=sup?recvSubOf(sup):recvSubOf(fa);
-  if(!recv&&!confirm('수신처가 선택되지 않았어요. 수신인 없이 인쇄할까요?\n(툴바의 "수신처"에서 발주처 관리에 등록된 곳을 선택할 수 있어요)'))return;
-  const rows=pend.map(o=>{const p=prodOf(o.pid),c=colorOf(p,o.cid);
-    return {name:esc(p?pPName(p):'(삭제된 제품)'),color:esc(c?cPName(c):'?'),spec:'-',unit:'개',qty:String(o.qty),due:o.due?kdate(o.due):'',note:esc(o.note||'')}});
+  const rows=pend.map(o=>{const p=prodOf(o.pid),c=p?colorOf(p,o.cid):null;
+    return {name:esc(p?pPName(p):(o.name||'(삭제된 제품)')),color:esc(c?cPName(c):'-'),spec:'-',unit:'개',qty:String(o.qty),due:o.due?kdate(o.due):'',note:esc(o.note||'')}});
   /* 제품별 1개 제작 시 투입량 — 제품·배합 데이터에서 자동 작성 */
   const seenM=new Set();const matRows=[];
   pend.forEach(o=>{const key=o.pid+'|'+o.cid;if(seenM.has(key))return;seenM.add(key);
@@ -1770,10 +1773,26 @@ $('#printOrders').onclick=()=>{
       <colgroup><col><col style="width:130px"><col style="width:110px"><col style="width:110px"><col style="width:110px"></colgroup>
       <tr><th style="${PH}">품명</th><th style="${PH}">색상</th><th style="${PH}">플레이크(g)</th><th style="${PH}">파우더(g)</th><th style="${PH}">합계(g)</th></tr>
       ${matRows.join('')}</table></div>`:'';
-  $('#printSheet').innerHTML=officialSheet({title:'생 산 요 청 서',en:'PRODUCTION REQUEST',noLabel:'주문번호',docNo:reqNo(),staff:reqStaff(),recv,recvSub,
-    greet:'아래와 같이 생산을 요청합니다.',rows,note:'참고) 제작은 위 순번 순서대로 진행 부탁드립니다.',foot:'생산요청서',extra});
+  return {sheet:officialSheet({title:'생 산 요 청 서',en:'PRODUCTION REQUEST',noLabel:'주문번호',docNo:opts.docNo||reqNo(),staff:reqStaff(),recv,recvSub,
+    greet:'아래와 같이 생산을 요청합니다.',rows,note:'참고) 제작은 위 순번 순서대로 진행 부탁드립니다.',foot:'생산요청서',extra}),recv};
+}
+function printProdBatch(b){
+  const pend=(b&&b.orders)||[];
+  if(!pend.length){alert('인쇄할 생산 발주 내역이 없습니다.');return}
+  const out=prodReqSheetHTML(pend,{});
+  $('#printSheet').innerHTML=out.sheet;
   window.print();
-};
+}
+$('#printOrders')&&($('#printOrders').onclick=()=>{
+  const pend=S.orders.filter(o=>!o.done);
+  if(!pend.length){alert('진행 중인 제작 순서가 없습니다.');return}
+  const sup=supOf(S.settings.reqSupId);
+  const recv=sup?esc(sup.name):esc((S.settings.factory||{}).name||'');
+  if(!recv&&!confirm('수신처가 선택되지 않았어요. 수신인 없이 인쇄할까요?\n(툴바의 "수신처"에서 발주처 관리에 등록된 곳을 선택할 수 있어요)'))return;
+  const out=prodReqSheetHTML(pend,{});
+  $('#printSheet').innerHTML=out.sheet;
+  window.print();
+});
 
 $('#printPO').onclick=()=>{
   const ab=S.poBatches.find(b=>b.id===S.settings.activeMatBatchId);
