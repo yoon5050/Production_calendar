@@ -245,8 +245,7 @@ window.FIREBASE_CONFIG={
       <button class="btn" id="printOrders">🖨 생산 요청서 인쇄</button>
       <button class="btn" id="dailyLogBtn2">🖨 생산일지 양식</button>
       <label style="display:flex;gap:5px;align-items:center;font-size:13px" title="생산 요청서의 수신인 — 선택하거나 새로 등록하고, 담당자·연락처를 바로 입력할 수 있어요">수신처 <select id="reqSup"></select></label>
-      <input type="text" id="reqSupPerson" placeholder="담당자" style="width:76px" title="선택한 수신처의 담당자 (발주처 관리와 연동)">
-      <input type="text" id="reqSupPhone" placeholder="연락처" style="width:116px" title="선택한 수신처의 연락처 (발주처 관리와 연동)">
+      <label style="display:flex;gap:5px;align-items:center;font-size:13px" title="우리 회사 담당자 — 설정·백업에서 직원 등록">우리 담당자 <select id="reqStaff"></select></label>
       <label style="display:flex;gap:5px;align-items:center;font-size:13px" title="발주 확정 시 이 번호로 잠기고, 발주 마감 시 자동으로 다음 번호가 생성됩니다">주문번호 <input type="text" id="reqNo" style="width:130px"></label>
       <label style="display:flex;gap:5px;align-items:center;font-size:13px" title="플레이크 입고일에 맞춰 생산 시작일을 지정하면 예정 일정이 그날부터 계산됩니다">생산 시작일 <input type="date" id="prodStart"></label>
       <button class="btn" id="prodConfirmBtn" style="margin-left:auto"></button>
@@ -281,8 +280,7 @@ window.FIREBASE_CONFIG={
   <section class="tab" id="tab-po">
     <div class="toolbar">
       <label style="display:flex;gap:5px;align-items:center;font-size:13px" title="발주서의 수신인 — 선택하거나 새로 등록하고, 담당자·연락처를 바로 입력할 수 있어요">수신처 <select id="poSup"></select></label>
-      <input type="text" id="poSupPerson" placeholder="담당자" style="width:76px" title="선택한 수신처의 담당자 (발주처 관리와 연동)">
-      <input type="text" id="poSupPhone" placeholder="연락처" style="width:116px" title="선택한 수신처의 연락처 (발주처 관리와 연동)">
+      <label style="display:flex;gap:5px;align-items:center;font-size:13px" title="우리 회사 담당자 — 설정·백업에서 직원 등록">우리 담당자 <select id="poStaff"></select></label>
       <label style="display:flex;gap:5px;align-items:center;font-size:13px"><input type="checkbox" id="poStock" checked>현재 재고 차감 (부족분만 발주)</label>
       <label style="display:flex;gap:5px;align-items:center;font-size:13px">희망 입고일 <input type="date" id="poDue"></label>
       <label style="display:flex;gap:5px;align-items:center;font-size:13px" title="발주 확정 시 이 번호로 잠기고, 발주 마감 시 자동으로 다음 번호가 생성됩니다">발주번호 <input type="text" id="poNo" style="width:130px"></label>
@@ -408,6 +406,13 @@ window.FIREBASE_CONFIG={
         <label class="fl">공장명<input type="text" id="faName"></label>
         <label class="fl">담당자<input type="text" id="faPerson"></label>
         <label class="fl">연락처<input type="text" id="faPhone"></label>
+      </div>
+      <h2 class="sec" style="margin-top:18px">우리 회사 담당자 (직원 등록 — 발주서 담당자 선택용)</h2>
+      <div id="staffList"></div>
+      <div class="toolbar" style="margin-top:8px">
+        <input type="text" id="stName" placeholder="이름" style="width:110px">
+        <input type="text" id="stPhone" placeholder="연락처" style="width:140px">
+        <button class="btn pri" id="addStaff">직원 추가</button>
       </div>
       <h2 class="sec" style="margin-top:18px">☁️ 실시간 공유 (Firebase) — 모든 기기에서 같은 데이터</h2>
       <p class="hint" id="fbInfo"></p>
@@ -583,6 +588,9 @@ if(!S.settings._satDefault){S.settings.offSat=true;S.settings._satDefault=1} /* 
 S.settings.prodConfirmed=S.settings.prodConfirmed||false;
 S.settings.activeMatBatchId=S.settings.activeMatBatchId||'';
 S.settings.factory=S.settings.factory||{name:'',person:'',phone:''};
+S.settings.staff=S.settings.staff||[];
+S.settings.reqStaffId=S.settings.reqStaffId||'';
+S.settings.poStaffId=S.settings.poStaffId||'';
 S.flakes.forEach(f=>{
   f.stock=f.stock||0;f.stockDate=f.stockDate||null;f.kind=f.kind||'flake';
   if(f.supplier&&!f.supId){ /* 문자열 발주처 → 마스터 이전 */
@@ -692,10 +700,22 @@ function setColorStockBags(pid,cid,bags,date){
 }
 const manualBags=(pid,cid)=>{const id='manual-'+pid+'-'+cid;const b=S.inbounds.find(x=>x.batchId===id);return b?bags1(b.kg/sackKg()):''};
 const coLine=()=>{const c=S.settings.co||{};return [c.name,c.person&&'담당 '+c.person,c.phone,c.email].filter(Boolean).join(' · ')};
+const staffOf=id=>(S.settings.staff||[]).find(s=>s.id===id);
+const reqStaff=()=>staffOf(S.settings.reqStaffId);
+const poStaff=()=>staffOf(S.settings.poStaffId);
 const supOf=id=>S.suppliers.find(s=>s.id===id);
 const supLabel=s=>s?[s.name,s.person&&'담당 '+s.person,s.phone].filter(Boolean).join(' · '):'발주처 미지정';
 const factoryLine=()=>{const f=S.settings.factory||{};return [f.name,f.person&&'담당 '+f.person,f.phone].filter(Boolean).join(' · ')};
 /* 수신처 select + 담당자/연락처 입력 묶음 — 발주처 관리(S.suppliers)와 직접 연동 */
+function bindStaff(selId,key){
+  const sel=$('#'+selId); if(!sel)return;
+  const staff=S.settings.staff||[];
+  sel.innerHTML='<option value="">담당자 선택…</option>'+staff.map(s=>`<option value="${s.id}" ${S.settings[key]===s.id?'selected':''}>${esc(s.name)}${s.phone?' ('+esc(s.phone)+')':''}</option>`).join('')+'<option value="__new">＋ 새 직원 등록…</option>';
+  sel.onchange=e=>{
+    if(e.target.value==='__new'){ const nm=prompt('직원 이름을 입력하세요'); if(nm&&nm.trim()){const ph=prompt('연락처 (선택)')||'';S.settings.staff=S.settings.staff||[];const st={id:uid(),name:nm.trim(),phone:(ph||'').trim()};S.settings.staff.push(st);S.settings[key]=st.id;} render(); return; }
+    S.settings[key]=e.target.value; render();
+  };
+}
 function bindSupPicker(selId,pId,phId,get,set,newType){
   const sel=$('#'+selId),pi=$('#'+pId),ph=$('#'+phId);
   if(!sel)return;
@@ -800,7 +820,7 @@ const blendEffItems=po=>blendEff(po).filter(r=>r.sacks>0).map(r=>({pid:r.pid,cid
 
 /* ===== render ===== */
 function render(){
-  [renderStats,renderCal,renderStockView,renderRangeView,renderPanel,renderOrders,renderPO,renderTests,renderProds,renderFlakes,renderSettings]
+  [renderStats,renderCal,renderStockView,renderRangeView,renderPanel,renderOrders,renderPO,renderTests,renderProds,renderFlakes,renderSettings,renderStaff]
     .forEach(f=>{try{f()}catch(e){console.error('render step 오류:',f.name,e)}});
   save(); /* 어떤 화면 오류가 나도 저장·동기화는 항상 수행 */
 }
@@ -890,6 +910,7 @@ function renderCal(){
     const d=addD(start,i),ds=fmt(d),out=d.getMonth()!==curM;
     const dayRecs=S.records.filter(r=>r.date===ds);
     const dayInb=S.inbounds.filter(b=>b.date===ds);
+    const dayPowder=S.flakes.filter(f=>f.kind==='powder'&&f.stockDate===ds&&(f.stock||0)>0);
     const auto=ds>=today?(fcDays.get(ds)||[]):[];
     const lines=dayRecs.slice(0,3).map(r=>{
       const c=colorOf(prodOf(r.pid),r.cid);
@@ -902,6 +923,7 @@ function renderCal(){
     +dayInb.slice(0,2).map(b=>{
       const label=b.pid?(colorOf(prodOf(b.pid),b.cid)||{}).name||'?':(flakeOf(b.fid)||{}).name||'?';
       return `<div class="amt in">📦 ${esc(label)} +${sackTxt(b.kg)}</div>`}).join('')
+    +dayPowder.map(f=>`<div class="amt in">📦 ${esc(f.name)} +${kg1(f.stock)}kg</div>`).join('')
     +(dayInb.length>2?`<div class="cum">입고 외 ${dayInb.length-2}건</div>`:'');
     const cls=['day',out?'out':'',ds===today?'today':'',ds===selDate?'sel':'',d.getDay()===0?'sun':'',isOff(ds)?'off':''].join(' ');
     h+=`<div class="${cls}" data-d="${ds}"><div class="num">${d.getDate()}</div>`
@@ -1010,7 +1032,7 @@ function renderOrders(){
       <div class="ctl">
         <button class="btn sm" data-a="up" data-i="${i}">▲</button>
         <button class="btn sm" data-a="dn" data-i="${i}">▼</button>
-        <button class="btn sm" data-a="done" data-i="${i}">${o.done?'복원':'완료'}</button>
+        
         <button class="btn sm danger" data-a="del" data-i="${i}">삭제</button></div></div>`;
   }).join(''):'<p class="hint">제작 순서를 추가하세요. 위 순서(우선순위)대로 생산된다고 가정해 예상 완료일이 계산됩니다.</p>';
   document.querySelectorAll('#orderList [data-a]').forEach(b=>b.onclick=()=>{
@@ -1040,6 +1062,7 @@ function renderOrders(){
   if($('#poNo')&&document.activeElement!==$('#poNo'))$('#poNo').value=poNoV();
   /* 수신처 선택·신규 등록 + 담당자/연락처 바로 입력 (발주처 관리와 연동) */
   bindSupPicker('reqSup','reqSupPerson','reqSupPhone',()=>S.settings.reqSupId,v=>{S.settings.reqSupId=v},'etc');
+  bindStaff('reqStaff','reqStaffId');
   /* 생산 발주 확정 버튼 */
   const pcb=$('#prodConfirmBtn');
   const hasCur=S.orders.some(o=>!o.done);
@@ -1057,7 +1080,7 @@ function renderOrders(){
       ${b.orders.map(o=>`<tr><td>${esc(o.name)}${o.finished?' ✅':''}</td><td class="r">${o.qty}개</td><td>${o.due?kdate(o.due):'-'}</td><td>${esc(o.note)}</td></tr>`).join('')}</table>
     </div>`).join(''):'<p class="hint">아직 보관된 생산 발주가 없습니다.</p>';
   document.querySelectorAll('#histOrders [data-hx]').forEach(btn=>btn.onclick=()=>{
-    if(confirm('이 이력을 삭제하고, 이 발주로 잡힌 캘린더 일정도 함께 지울까요?')){S.records=S.records.filter(r=>r.batchId!==btn.dataset.hx);S.history=S.history.filter(b=>b.id!==btn.dataset.hx);render()}
+    if(confirm('이 이력을 삭제하고, 이 발주로 잡힌 캘린더 일정도 함께 지울까요?')){const id=btn.dataset.hx;const bb=S.history.find(x=>x.id===id);S.records=S.records.filter(r=>{if(r.batchId)return r.batchId!==id;if(bb&&bb.start&&bb.orders&&bb.orders.some(o=>o.pid===r.pid&&o.cid===r.cid)&&r.date>=bb.start)return false;return true});S.history=S.history.filter(b=>b.id!==id);render()}
   });
   document.querySelectorAll('#histOrders [data-hrestore]').forEach(btn=>btn.onclick=()=>{
     const b=S.history.find(x=>x.id===btn.dataset.hrestore);if(!b)return;
@@ -1128,6 +1151,7 @@ function renderPO(){
   }
   $('#poSups').innerHTML=cardHtml;
   bindSupPicker('poSup','poSupPerson','poSupPhone',()=>{const s=poSupSel();return s?s.id:''},v=>{S.settings.poSupId=v},'blend');
+  bindStaff('poStaff','poStaffId');
   /* draft 편집 핸들러 */
   document.querySelectorAll('#poSups [data-bsk]').forEach(inp=>inp.onchange=()=>{
     const key=inp.dataset.bsk;const v=Math.max(0,bags1(inp.value));
@@ -1197,13 +1221,22 @@ function renderPO(){
     render();
   };
   /* ── 지난 자재 발주 목록 ── */
-  $('#histPO').innerHTML=S.history.length?S.history.map(b=>`
-    <div class="sup"><div class="top"><span class="nm">📅 ${kdate(b.date)} 발주분</span>
-      <span style="font-size:12px;color:var(--sub)">배합 ${b.blendOrders.length}종 · 자재 ${b.flakeOrders.length}종</span></div>
-      ${b.blendOrders.length?`<table class="t hist"><tr><th style="width:200px">색상</th><th class="r" style="width:70px">수량</th><th class="r" style="width:70px">포대</th></tr>
-      ${b.blendOrders.map(o=>`<tr><td>${esc(o.name)}</td><td class="r">${o.qty}개</td><td class="r">${o.sacks}</td></tr>`).join('')}</table>`
-      :'<p class="hint">배합 발주 없음</p>'}
-    </div>`).join(''):'<p class="hint">아직 보관된 자재 발주가 없습니다. 생산 발주 탭에서 발주 마감을 하면 여기에 함께 보관돼요.</p>';
+  $('#histPO').innerHTML=S.poBatches.length?S.poBatches.map(b=>`
+    <div class="sup"><div class="top"><span class="nm">📅 ${kdate(b.date)} 자재 발주${b.due?' · 입고 '+kdate(b.due):''}</span>
+      <span style="font-size:12px;color:var(--sub)">배합 ${(b.items||[]).length}종</span>
+      <button class="btn sm danger" data-pox="${b.id}" style="margin-left:auto">삭제</button></div>
+      <table class="t hist"><tr><th style="width:220px">색상</th><th class="r" style="width:70px">포대</th><th class="r" style="width:90px">kg</th></tr>
+      ${(b.items||[]).map(it=>`<tr><td>${esc(it.pid?nameOf(it.pid,it.cid):(flakeOf(it.fid)||{}).name||'?')}</td><td class="r">${it.sacks||'-'}</td><td class="r">${it.kg}kg</td></tr>`).join('')}</table>
+    </div>`).join(''):'<p class="hint">아직 확정된 자재 발주가 없습니다.</p>';
+  document.querySelectorAll('#histPO [data-pox]').forEach(btn=>btn.onclick=()=>{
+    if(confirm('이 자재 발주를 삭제할까요? 캘린더의 입고 예정도 함께 지워집니다.')){
+      const id=btn.dataset.pox;
+      S.inbounds=S.inbounds.filter(x=>x.batchId!==id);
+      S.poBatches=S.poBatches.filter(b=>b.id!==id);
+      if(S.settings.activeMatBatchId===id)S.settings.activeMatBatchId='';
+      render();
+    }
+  });
 }
 
 function supText(supId){
@@ -1226,7 +1259,7 @@ function printSupSheet(supId){
   if(!need.length){alert('이 발주처에 발주할 자재가 없습니다.');return}
   const rows=need.map(r=>({name:esc(r.name)+(r.kind==='powder'?' (파우더)':''),color:'-',spec:'-',unit:'kg',qty:String(r.orderKg),due:poDueK(),note:r.sacks+'포대'}));
   const sp=supOf(supId);
-  $('#printSheet').innerHTML=officialSheet({title:'발 주 서',en:'PURCHASE ORDER',noLabel:'발주번호',docNo:poNoV(),recv:esc(sp?sp.name:''),recvSub:recvSubOf(sp),
+  $('#printSheet').innerHTML=officialSheet({title:'발 주 서',en:'PURCHASE ORDER',noLabel:'발주번호',docNo:poNoV(),staff:poStaff(),recv:esc(sp?sp.name:''),recvSub:recvSubOf(sp),
     greet:'아래와 같이 발주합니다.',rows,foot:'발주서'});
   window.print();
 }
@@ -1359,6 +1392,17 @@ function renderFlakes(){
   });
 }
 
+function renderStaff(){
+  const el=$('#staffList'); if(!el)return;
+  const staff=S.settings.staff||[];
+  el.innerHTML=staff.length?`<table class="t"><tr><th>이름</th><th>연락처</th><th></th></tr>`
+    +staff.map(s=>`<tr><td><input type="text" data-stn="${s.id}" value="${esc(s.name)}" style="width:120px"></td><td><input type="text" data-stp="${s.id}" value="${esc(s.phone||'')}" style="width:150px"></td><td><button class="btn sm danger" data-stx="${s.id}">삭제</button></td></tr>`).join('')+'</table>'
+    :'<p class="hint">등록된 직원이 없습니다. 아래에서 추가하세요.</p>';
+  document.querySelectorAll('[data-stn]').forEach(i=>i.onchange=()=>{const s=staffOf(i.dataset.stn);if(s){s.name=i.value.trim();render()}});
+  document.querySelectorAll('[data-stp]').forEach(i=>i.onchange=()=>{const s=staffOf(i.dataset.stp);if(s){s.phone=i.value.trim();render()}});
+  document.querySelectorAll('[data-stx]').forEach(b=>b.onclick=()=>{if(confirm('직원을 삭제할까요?')){S.settings.staff=(S.settings.staff||[]).filter(s=>s.id!==b.dataset.stx);render()}});
+  const add=$('#addStaff'); if(add)add.onclick=()=>{const nm=($('#stName').value||'').trim();if(!nm)return;S.settings.staff=S.settings.staff||[];S.settings.staff.push({id:uid(),name:nm,phone:($('#stPhone').value||'').trim()});$('#stName').value='';$('#stPhone').value='';render()};
+}
 function renderSettings(){
   $('#sackInput').value=sackKg();
   $('#offSun').checked=S.settings.offSun;
@@ -1538,7 +1582,7 @@ const PD='border:1px solid #565b66;padding:9px 8px;';
 /* o: {title,en,noLabel,docNo,recv,recvSub,greet,rows:[{name,color,spec,unit,qty,due,note}],noNote,note,foot} */
 function officialSheet(o){
   const co=S.settings.co||{};
-  const personLine=co.person?`${co.person}${co.phone?'('+co.phone+')':''}`:(co.phone||'');
+  const personLine=o.staff?`${o.staff.name||''}${o.staff.phone?'('+o.staff.phone+')':''}`:(co.person?`${co.person}${co.phone?'('+co.phone+')':''}`:(co.phone||''));
   const H=PH,D=PD;
   return `<div style="color:#1c2333">
   <div style="display:flex;justify-content:space-between;align-items:flex-end;border-bottom:2px solid #2b3a5c;padding-bottom:10px;margin-bottom:16px">
@@ -1613,7 +1657,7 @@ function recipePage(items){
     const chunks=[];for(let i=0;i<rec.length;i+=6)chunks.push(rec.slice(i,i+6));
     if(!chunks.length)chunks.push([]);
     secs.push(`<table style="width:100%;border-collapse:collapse;font-size:11px;margin-bottom:14px;table-layout:fixed;page-break-inside:avoid">
-      <tr><th colspan="6" style="${PH}text-align:left;padding:8px 10px;background:#dfe5f0">${esc(p.name)} — ${esc(c.name)} <span style="font-weight:400;color:#555">(1포대 ${sk}kg 기준)</span></th></tr>
+      <tr><th colspan="6" style="${PH}text-align:left;padding:8px 10px;background:#dfe5f0">${esc(pPName(p))} — ${esc(cPName(c))} <span style="font-weight:400;color:#555">(1포대 ${sk}kg 기준)</span></th></tr>
       ${chunks.map(ch=>
         `<tr>${ch.map(e=>{const f=flakeOf(e.fid);return `<th style="${PH}font-size:10.5px">${esc(f?f.name:'?')}</th>`}).join('')}${('<th style="'+PH+'"></th>').repeat(6-ch.length)}</tr>
          <tr>${ch.map(e=>`<td style="${PD}text-align:center;font-weight:700">${kg1(e.r*sk)}</td>`).join('')}${('<td style="'+PD+'"></td>').repeat(6-ch.length)}</tr>`).join('')}
@@ -1629,11 +1673,11 @@ function recipePage(items){
 function blendSheetSet(sup,items,dueTxt){
   const rows=items.map(it=>{
     if(it.pid){const p=prodOf(it.pid),c=colorOf(p,it.cid);
-      return {name:esc(p?p.name:'?'),color:esc(c?c.name:'?'),spec:'-',unit:'포대',qty:String(it.sacks),due:dueTxt||''}}
+      return {name:esc(p?pPName(p):'?'),color:esc(c?cPName(c):'?'),spec:'-',unit:'포대',qty:String(it.sacks),due:dueTxt||''}}
     const f=flakeOf(it.fid);
     return {name:esc(f?f.name:'?'),color:'-',spec:'-',unit:'kg',qty:String(it.kg),due:dueTxt||''};
   });
-  const sheet=officialSheet({title:'발 주 서',en:'PURCHASE ORDER',noLabel:'발주번호',docNo:poNoV(),
+  const sheet=officialSheet({title:'발 주 서',en:'PURCHASE ORDER',noLabel:'발주번호',docNo:poNoV(),staff:poStaff(),
     recv:esc(sup?sup.name:''),recvSub:recvSubOf(sup),greet:'아래와 같이 발주합니다.',rows,noNote:true,
     note:'참고) 뒷장의 플레이크별 필요량 합계와 배합비를 함께 확인해 주세요. <b style="color:#c02020">※ 필수: 배합비 원본과 비율 대조 후 진행해 주세요.</b>',foot:'발주서',pageLabel:''});
   return sheet+flakePage(items)+recipePage(items);
@@ -1723,7 +1767,7 @@ $('#printOrders').onclick=()=>{
       <colgroup><col><col style="width:130px"><col style="width:110px"><col style="width:110px"><col style="width:110px"></colgroup>
       <tr><th style="${PH}">품명</th><th style="${PH}">색상</th><th style="${PH}">플레이크(g)</th><th style="${PH}">파우더(g)</th><th style="${PH}">합계(g)</th></tr>
       ${matRows.join('')}</table></div>`:'';
-  $('#printSheet').innerHTML=officialSheet({title:'생 산 요 청 서',en:'PRODUCTION REQUEST',noLabel:'주문번호',docNo:reqNo(),recv,recvSub,
+  $('#printSheet').innerHTML=officialSheet({title:'생 산 요 청 서',en:'PRODUCTION REQUEST',noLabel:'주문번호',docNo:reqNo(),staff:reqStaff(),recv,recvSub,
     greet:'아래와 같이 생산을 요청합니다.',rows,note:'참고) 제작은 위 순번 순서대로 진행 부탁드립니다.',foot:'생산요청서',extra});
   window.print();
 };
@@ -2009,13 +2053,13 @@ initFB();
     if(!m){ alert('먼저 이 품목을 production 제품·색상에 매핑해 주세요 (설정·백업 탭의 “md 연동”).'); return; }
     var rec=recQty(it,m);
     if(rec<=0){ alert('이미 생산 발주에 충분히 있습니다.'); return; }
-    S.orders.push({id:uid(),pid:m.pid,cid:m.cid,qty:rec,due:'',note:'md 자동('+nameOfMd(it)+')',done:false});
+    S.orders.push({id:uid(),pid:m.pid,cid:m.cid,qty:rec,due:'',note:'',done:false});
     save(); render(); renderAll();
   }
   function addAll(){
     var n=0;
     shortages().forEach(function(it){ var m=matchProd(it); if(!m)return; var rec=recQty(it,m); if(rec<=0)return;
-      S.orders.push({id:uid(),pid:m.pid,cid:m.cid,qty:rec,due:'',note:'md 자동('+nameOfMd(it)+')',done:false}); n++; });
+      S.orders.push({id:uid(),pid:m.pid,cid:m.cid,qty:rec,due:'',note:'',done:false}); n++; });
     if(n){ save(); render(); }
     renderAll();
     alert(n?(n+'건을 생산 발주에 추가했어요. 내용 확인 후 확정하세요.'):'추가할 항목이 없습니다 (미매핑 또는 이미 발주됨).');
