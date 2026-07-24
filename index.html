@@ -2057,8 +2057,8 @@ initFB();
       +'<div class="toolbar"><button class="btn" id="mdRefresh2">↻ md 재고 새로고침</button></div>'
       +((mdErr&&!mdDB)?('<div style="background:var(--red-l);border:1px solid var(--red);border-radius:8px;padding:10px 12px;font-size:12.5px;line-height:1.6">'
         +'<b>읽기 권한 설정(최초 1회)</b> — Supabase → SQL Editor에서 아래를 실행하면 production이 md 재고를 읽을 수 있어요:'
-        +'<code style="display:block;background:#fff;padding:6px 8px;border-radius:6px;margin:6px 0;white-space:pre-wrap">alter table lowlit_workspace enable row level security;\ncreate policy "prod_read" on lowlit_workspace for select using (true);</code>'
-        +'⚠️ 이 정책은 공개 anon 키로 재고 조회를 허용합니다(내부 도구 기준). 노출이 우려되면 production 로그인 방식(옵션 A)으로 전환할 수 있어요.</div>'):'')
+        +'<code style="display:block;background:#fff;padding:6px 8px;border-radius:6px;margin:6px 0;white-space:pre-wrap">drop policy if exists "prod_read" on lowlit_workspace;\ncreate policy "prod_read" on lowlit_workspace for select using (true);</code>'
+        +'⚠️ 이 SQL은 <b>읽기 권한만</b> 추가하며 md의 저장 기능에는 영향을 주지 않습니다. 공개 anon 키로 재고 조회를 허용하므로(내부 도구 기준) 노출이 우려되면 production 로그인 방식(옵션 A)으로 전환할 수 있어요.</div>'):'')
       +'<h2 class="sec" style="margin-top:16px">제품 매핑 <span class="badge">부족 품목 '+sh.length+'</span></h2>'
       +(sh.length?('<table class="t"><tr><th>md 완제품</th><th style="width:280px">production 제품·색상</th><th>매칭</th></tr>'+maprows+'</table>'
         +'<p class="hint">색상명이 같으면 자동 매칭됩니다. 이름이 달라 매칭이 안 되면 위에서 직접 지정하세요. 부자재는 md 내부에서 처리되어 여기 나타나지 않습니다.</p>')
