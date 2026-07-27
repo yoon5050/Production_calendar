@@ -2176,7 +2176,9 @@ initFB();
     var c=mdClient(); if(!c||!entries||!entries.length)return;
     c.from('production_schedule').select('data').eq('id','latest').maybeSingle().then(function(res){
       var arr=(res&&res.data&&res.data.data)||[]; if(!Array.isArray(arr))arr=[];
-      arr=arr.concat(entries); if(arr.length>200)arr=arr.slice(arr.length-200);
+      entries.forEach(function(ne){ var ex=arr.find(function(e){return e&&e.status!=='승인완료'&&e.status!=='검수완료'&&(e.name||'')===(ne.name||'')&&(e.color||'')===(ne.color||'');});
+        if(ex){ ex.qty=(+ex.qty||0)+(+ne.qty||0); if(ne.date)ex.date=ne.date; if(ne.batchId)ex.batchId=ne.batchId; } else arr.push(ne); });
+      if(arr.length>200)arr=arr.slice(arr.length-200);
       c.from('production_schedule').upsert({id:'latest',updated_at:new Date().toISOString(),data:arr}).then(function(){},function(){});
     },function(){ c.from('production_schedule').upsert({id:'latest',data:entries}).then(function(){},function(){}); });
   }
@@ -2344,8 +2346,15 @@ initFB();
   'use strict';
   var MD_URL='https://nwntvzgmxxpxjltykfkj.supabase.co';
   var MD_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im53bnR2emdteHhweGpsdHlrZmtqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAyODQzMjAsImV4cCI6MjA5NTg2MDMyMH0.osUjhzlATjyP8JItMEWzkc8-hL9CF7ZNQeZmxukXQLE';
-  var psb=null, PS=[];
+  var psb=null, PS=[], CLOSED={};
   var GK=[['A','A'],['Bp','B+'],['B','B'],['C','C']];
+  function dedupPending(){ var byKey={},out=[],changed=false;
+    PS.forEach(function(e){ if(!e)return;
+      if(e.status==='검수완료'||e.status==='승인완료'){ out.push(e); return; }
+      var k=(e.name||'')+'|'+(e.color||'');
+      if(byKey[k]){ byKey[k].qty=(+byKey[k].qty||0)+(+e.qty||0); if(e.date)byKey[k].date=e.date; changed=true; }
+      else { byKey[k]=e; out.push(e); } });
+    if(changed)PS=out; return changed; }
   function client(){
     try{
       var url=(window.S&&S.mdlink&&S.mdlink.url)||MD_URL, key=(window.S&&S.mdlink&&S.mdlink.key)||MD_KEY;
@@ -2356,7 +2365,7 @@ initFB();
   }
   function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
   function gsum(g){ g=g||{}; return (+g.A||0)+(+g.Bp||0)+(+g.B||0)+(+g.C||0); }
-  function catOf(e){ var ps=(window.S&&S.products)||[]; var p=ps.find(function(x){return x.name===e.name;}); return (p&&p.cat1)||'미분류'; }
+  function catOf(e){ var ps=(typeof S!=='undefined'&&S.products)?S.products:[]; var p=ps.find(function(x){return x.name===e.name;}); return (p&&p.cat1)||'미분류'; }
   function grp(list){
     var m={},order=[];
     list.forEach(function(e){ var c=catOf(e); if(!m[c]){m[c]=[];order.push(c);} m[c].push(e); });
@@ -2374,9 +2383,11 @@ initFB();
     box.innerHTML='<p class="hint">불러오는 중…</p>';
     c.from('production_schedule').select('data').eq('id','latest').maybeSingle().then(function(res){
       if(res.error){ box.innerHTML='<p class="hint">읽기 실패: '+esc(res.error.message||'권한/테이블 확인')+'</p>'; return; }
-      var a=res.data&&res.data.data; PS=Array.isArray(a)?a:[]; render();
+      var a=res.data&&res.data.data; PS=Array.isArray(a)?a:[]; var ch=dedupPending(); render(); if(ch){var cc=client(); if(cc)cc.from('production_schedule').upsert({id:'latest',updated_at:new Date().toISOString(),data:PS}).then(function(){},function(){});}
     },function(e){ box.innerHTML='<p class="hint">읽기 실패: '+esc(e.message||e)+'</p>'; });
   }
+  function prodStockToggle(cat){ CLOSED[cat]=!CLOSED[cat]; render(); }
+  window.prodStockToggle=prodStockToggle;
   function render(){
     var box=document.getElementById('pstockBody'); if(!box)return;
     var top=PS.filter(function(e){return e&&e.status!=='검수완료'&&e.status!=='승인완료';});
@@ -2386,11 +2397,13 @@ initFB();
     html+='<div style="font-weight:800;margin:2px 0 6px;font-size:14px">📥 입고 예정 · 검수 입력</div>';
     if(!top.length){ html+='<p class="hint">대기 중인 입고 예정이 없습니다. (md에서 생산 발주가 확정되면 넘어옵니다)</p>'; }
     else {
-      html+='<div style="overflow-x:auto"><table class="t" style="width:100%;border-collapse:collapse"><tr><th>색상 (제품)</th><th class="r">예정</th><th>예정일</th><th class="r">A</th><th class="r">B+</th><th class="r">B</th><th class="r">C</th><th class="r">검수합계</th></tr>';
+      html+='<div style="overflow-x:auto"><table class="t" style="width:100%;border-collapse:collapse"><tr><th>소분류 (색상)</th><th>제품</th><th class="r">전체 수량</th><th>예정일</th><th class="r">A</th><th class="r">B+</th><th class="r">B</th><th class="r">C</th><th class="r">검수합계</th></tr>';
       grp(top).forEach(function(g){
-        html+='<tr><td colspan="8" style="background:var(--blue-l);font-weight:800;color:var(--blue);padding:6px 8px">'+esc(g.cat)+'</td></tr>';
+        var cl=!!CLOSED[g.cat];
+        html+='<tr><td colspan="9" onclick="prodStockToggle(\''+esc(g.cat)+'\')" style="cursor:pointer;background:var(--blue-l);font-weight:800;color:var(--blue);padding:6px 8px">'+(cl?'▶':'▼')+' '+esc(g.cat)+' <span style="font-weight:600;color:var(--sub);font-size:12px">'+g.entries.length+'색</span></td></tr>';
+        if(cl)return;
         g.entries.forEach(function(e){
-          html+='<tr><td><b>'+esc(e.color||'')+'</b>'+(e.name?' <span style="color:var(--sub);font-size:11px">('+esc(e.name)+')</span>':'')+'</td>'
+          html+='<tr><td><b>'+esc(e.color||'')+'</b></td><td style="color:var(--sub);font-size:12px">'+esc(e.name||'')+'</td>'
             +'<td class="r">'+(e.qty||0)+'개</td><td>'+(e.date?esc(e.date):'-')+'</td>'
             +gradeCells(e,'data-psg','prodStockCalc')
             +'<td class="r" id="pstot_'+e.id+'"><b>'+gsum(e.grades)+'</b></td></tr>';
