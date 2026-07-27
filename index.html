@@ -385,7 +385,7 @@ window.FIREBASE_CONFIG={
   <section class="tab" id="tab-pstock">
     <div class="card">
       <h2 class="sec">제품 재고 — 등급별 입고 검수</h2>
-      <p class="hint"><b>전체 수량</b>은 <b>생산 발주(색상발주) 확정 수량</b>에서 자동으로 넘어옵니다. 생산팀이 등급(A/B+/B/C)별 검수 수량을 입력하고 <b>발송</b>하면 md에서 승인 → 바디 재고에 반영됩니다. <button class="btn sm" id="pstockReload" style="margin-left:6px">↻ 새로고침</button> <button class="btn sm danger" id="pstockClear">🗑 목록 전체 비우기</button></p>
+      <p class="hint"><b>발주수량</b>은 <b>생산 발주 확정</b>에서 자동으로 넘어옵니다(로컬 이력 기준). 위 확정 내역을 보고 아래에서 등급(A/B+/B/C)별 검수 수량을 입력해 <b>전송</b>하면 md 승인 → 바디 재고(등급)에 반영됩니다. <button class="btn sm" id="pstockReload" style="margin-left:6px">↻ 새로고침</button> <button class="btn sm ghost" id="pstockClear">🗑 검수·전송로그 비우기</button></p>
       <div id="pstockBody"></div>
     </div>
   </section>
@@ -2341,125 +2341,132 @@ initFB();
 
 </script>
 <script>
-/* ===== production 제품 재고 — 대분류>색상 · 검수 후 한꺼번에 전송 (production_schedule 공유) ===== */
+/* ===== production 제품 재고 — 생산 발주 확정(로컬) → 등급 검수 → md 전송 ===== */
 (function(){
   'use strict';
   var MD_URL='https://nwntvzgmxxpxjltykfkj.supabase.co';
   var MD_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im53bnR2emdteHhweGpsdHlrZmtqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAyODQzMjAsImV4cCI6MjA5NTg2MDMyMH0.osUjhzlATjyP8JItMEWzkc8-hL9CF7ZNQeZmxukXQLE';
-  var psb=null, PS=[], CLOSED={};
+  var psb=null, CLOSED={};
   var GK=[['A','A'],['Bp','B+'],['B','B'],['C','C']];
-  function dedupPending(){ var byKey={},out=[],changed=false;
-    PS.forEach(function(e){ if(!e)return;
-      if(e.status==='검수완료'||e.status==='승인완료'){ out.push(e); return; }
-      var k=(e.name||'')+'|'+(e.color||'');
-      if(byKey[k]){ byKey[k].qty=(+byKey[k].qty||0)+(+e.qty||0); if(e.date)byKey[k].date=e.date; changed=true; }
-      else { byKey[k]=e; out.push(e); } });
-    if(changed)PS=out; return changed; }
-  function client(){
-    try{
-      var url=(window.S&&S.mdlink&&S.mdlink.url)||MD_URL, key=(window.S&&S.mdlink&&S.mdlink.key)||MD_KEY;
-      if(!window.supabase)return null;
-      if(!psb)psb=window.supabase.createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false}});
-      return psb;
-    }catch(e){ return null; }
-  }
+  function client(){ try{ var url=(typeof S!=='undefined'&&S.mdlink&&S.mdlink.url)||MD_URL, key=(typeof S!=='undefined'&&S.mdlink&&S.mdlink.key)||MD_KEY;
+    if(!window.supabase)return null; if(!psb)psb=window.supabase.createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false}}); return psb; }catch(e){return null;} }
   function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
-  function gsum(g){ g=g||{}; return (+g.A||0)+(+g.Bp||0)+(+g.B||0)+(+g.C||0); }
-  function catOf(e){ var ps=(typeof S!=='undefined'&&S.products)?S.products:[]; var p=ps.find(function(x){return x.name===e.name;}); return (p&&p.cat1)||'미분류'; }
-  function grp(list){
-    var m={},order=[];
-    list.forEach(function(e){ var c=catOf(e); if(!m[c]){m[c]=[];order.push(c);} m[c].push(e); });
-    order.sort();
-    return order.map(function(c){ return {cat:c, entries:m[c].sort(function(a,b){return String(a.color||'').localeCompare(String(b.color||''));})}; });
+  function n(v){ return (+v||0); }
+  function gsum(g){ g=g||{}; return n(g.A)+n(g.Bp)+n(g.B)+n(g.C); }
+  function pOf(id){ return (typeof prodOf==='function')?prodOf(id):null; }
+  function cOf(p,cid){ return (typeof colorOf==='function')?colorOf(p,cid):null; }
+  function catOf(pid){ var p=pOf(pid); return (p&&p.cat1)||'미분류'; }
+  function colorName(pid,cid){ var p=pOf(pid),c=p&&cOf(p,cid); return c?c.name:''; }
+  function prodName(pid){ var p=pOf(pid); return p?p.name:''; }
+
+  /* 생산 발주 확정 이력(S.history)에서 미검수 잔량 집계 */
+  function items(){
+    S.prodSentQty=S.prodSentQty||{}; S.prodGrades=S.prodGrades||{};
+    var agg={},order=[];
+    (S.history||[]).forEach(function(b){ (b.orders||[]).forEach(function(o){
+      if(!o.pid||!o.cid)return; var key=o.pid+'|'+o.cid;
+      if(!agg[key]){ agg[key]={key:key,pid:o.pid,cid:o.cid,qty:0,due:''}; order.push(key); }
+      agg[key].qty+=n(o.qty);
+      var d=b.start||b.date||''; if(d&&(!agg[key].due||d<agg[key].due))agg[key].due=d;
+    });});
+    var out=[]; order.forEach(function(k){ var it=agg[k]; it.pending=Math.max(0,it.qty-(n(S.prodSentQty[k]))); if(it.pending>0)out.push(it); });
+    return out;
   }
-  function gradeCells(e,attr,calcfn){
-    return GK.map(function(k){ var v=(e.grades&&e.grades[k[0]]!=null)?e.grades[k[0]]:''; 
-      return '<td class="r"><input type="number" min="0" '+attr+'="'+e.id+'|'+k[0]+'" value="'+v+'" placeholder="0" style="width:50px;text-align:right" oninput="'+calcfn+'(\''+e.id+'\')"></td>'; }).join('');
+  function grp(list){ var m={},order=[];
+    list.forEach(function(it){ var c=catOf(it.pid); if(!m[c]){m[c]=[];order.push(c);} m[c].push(it); });
+    order.sort(); return order.map(function(c){ return {cat:c, items:m[c].sort(function(a,b){return colorName(a.pid,a.cid).localeCompare(colorName(b.pid,b.cid));})}; });
   }
-  function load(){
-    var box=document.getElementById('pstockBody'); if(!box)return;
-    var c=client();
-    if(!c){ box.innerHTML='<p class="hint">연결 대기 중… 새로고침을 눌러주세요.</p>'; return; }
-    box.innerHTML='<p class="hint">불러오는 중…</p>';
-    c.from('production_schedule').select('data').eq('id','latest').maybeSingle().then(function(res){
-      if(res.error){ box.innerHTML='<p class="hint">읽기 실패: '+esc(res.error.message||'권한/테이블 확인')+'</p>'; return; }
-      var a=res.data&&res.data.data; PS=Array.isArray(a)?a:[]; var ch=dedupPending(); render(); if(ch){var cc=client(); if(cc)cc.from('production_schedule').upsert({id:'latest',updated_at:new Date().toISOString(),data:PS}).then(function(){},function(){});}
-    },function(e){ box.innerHTML='<p class="hint">읽기 실패: '+esc(e.message||e)+'</p>'; });
-  }
-  function prodStockToggle(cat){ CLOSED[cat]=!CLOSED[cat]; render(); }
-  window.prodStockToggle=prodStockToggle;
+  function gradeCells(key){ S.prodGrades=S.prodGrades||{}; var g=S.prodGrades[key]||{};
+    return GK.map(function(k){ var v=(g[k[0]]!=null&&g[k[0]]!=='')?g[k[0]]:''; return '<td class="r"><input type="number" min="0" data-psg="'+key+'|'+k[0]+'" value="'+v+'" placeholder="0" style="width:48px;text-align:right" oninput="prodStockG(\''+key+'\')"></td>'; }).join(''); }
+
   function render(){
     var box=document.getElementById('pstockBody'); if(!box)return;
-    var top=PS.filter(function(e){return e&&e.status!=='검수완료'&&e.status!=='승인완료';});
-    var mid=PS.filter(function(e){return e&&e.status==='검수완료';});
+    var list=items();
     var html='';
-    /* 위: 입고 예정 · 검수 입력 */
-    html+='<div style="font-weight:800;margin:2px 0 6px;font-size:14px">📥 입고 예정 · 검수 입력</div>';
-    if(!top.length){ html+='<p class="hint">대기 중인 입고 예정이 없습니다. (md에서 생산 발주가 확정되면 넘어옵니다)</p>'; }
+    /* 상단: 생산 발주 확정 내역 */
+    html+='<div style="font-weight:800;margin:2px 0 6px;font-size:14px">📋 생산 발주 확정 내역</div>';
+    var hist=(S.history||[]).slice(0,8);
+    if(!hist.length){ html+='<p class="hint">확정된 생산 발주가 없습니다. (생산 발주 🏭 탭에서 발주를 확정하세요)</p>'; }
+    else { html+='<div style="overflow-x:auto"><table class="t" style="width:100%;border-collapse:collapse"><tr><th>확정일</th><th>품목 (제품·색상)</th><th class="r">수량</th></tr>';
+      hist.forEach(function(b){ (b.orders||[]).forEach(function(o,i){
+        html+='<tr>'+(i===0?'<td rowspan="'+(b.orders.length)+'">'+esc(b.date||'')+(b.start?'<div style="font-size:11px;color:var(--sub)">시작 '+esc(b.start)+'</div>':'')+'</td>':'')
+          +'<td>'+esc(colorName(o.pid,o.cid)||o.name||'')+' <span style="color:var(--sub);font-size:12px">('+esc(prodName(o.pid)||'')+')</span></td>'
+          +'<td class="r">'+n(o.qty)+'개</td></tr>';
+      }); });
+      html+='</table></div>'; }
+    /* 하단: 제품·배합 구조 등급 검수 입력 */
+    html+='<hr style="margin:16px 0;border:none;border-top:1px solid var(--line)">';
+    html+='<div style="font-weight:800;margin:2px 0 6px;font-size:14px">🔬 등급 검수 입력 <span class="hint">(대분류별 · 검수 후 md로 전송)</span></div>';
+    if(!list.length){ html+='<p class="hint">검수할 미검수 잔량이 없습니다. (모두 전송했거나 발주가 없습니다)</p>'; }
     else {
-      html+='<div style="overflow-x:auto"><table class="t" style="width:100%;border-collapse:collapse"><tr><th>소분류 (색상)</th><th>제품</th><th class="r">전체 수량</th><th>예정일</th><th class="r">A</th><th class="r">B+</th><th class="r">B</th><th class="r">C</th><th class="r">검수합계</th></tr>';
-      grp(top).forEach(function(g){
+      html+='<div style="overflow-x:auto"><table class="t" style="width:100%;border-collapse:collapse"><tr><th>소분류 (색상)</th><th class="r">발주수량</th><th>예정일</th><th class="r">A</th><th class="r">B+</th><th class="r">B</th><th class="r">C</th><th class="r">검수합계</th></tr>';
+      grp(list).forEach(function(g){
         var cl=!!CLOSED[g.cat];
-        html+='<tr><td colspan="9" onclick="prodStockToggle(\''+esc(g.cat)+'\')" style="cursor:pointer;background:var(--blue-l);font-weight:800;color:var(--blue);padding:6px 8px">'+(cl?'▶':'▼')+' '+esc(g.cat)+' <span style="font-weight:600;color:var(--sub);font-size:12px">'+g.entries.length+'색</span></td></tr>';
+        html+='<tr><td colspan="8" onclick="prodStockToggle(\''+esc(g.cat)+'\')" style="cursor:pointer;background:var(--blue-l);font-weight:800;color:var(--blue);padding:6px 8px">'+(cl?'▶':'▼')+' '+esc(g.cat)+' <span style="font-weight:600;color:var(--sub);font-size:12px">'+g.items.length+'색</span></td></tr>';
         if(cl)return;
-        g.entries.forEach(function(e){
-          html+='<tr><td><b>'+esc(e.color||'')+'</b></td><td style="color:var(--sub);font-size:12px">'+esc(e.name||'')+'</td>'
-            +'<td class="r">'+(e.qty||0)+'개</td><td>'+(e.date?esc(e.date):'-')+'</td>'
-            +gradeCells(e,'data-psg','prodStockCalc')
-            +'<td class="r" id="pstot_'+e.id+'"><b>'+gsum(e.grades)+'</b></td></tr>';
+        g.items.forEach(function(it){
+          html+='<tr><td><b>'+esc(colorName(it.pid,it.cid)||'')+'</b></td>'
+            +'<td class="r">'+it.pending+'개</td><td>'+(it.due?esc(it.due):'-')+'</td>'
+            +gradeCells(it.key)
+            +'<td class="r" id="pstot_'+it.key.replace(/[^a-zA-Z0-9]/g,'_')+'"><b>'+gsum(S.prodGrades[it.key])+'</b></td></tr>';
         });
       });
       html+='</table></div>';
-      html+='<div style="margin-top:10px"><button class="btn pri" onclick="prodStockSendAll()">✅ 검수 완료 · md로 한꺼번에 전송</button> <span class="hint">등급 수량을 입력한 항목만 전송됩니다</span></div>';
+      html+='<div style="margin-top:10px"><button class="btn pri" onclick="prodStockSendAll()">✅ 검수 완료 · md로 전송</button> <span class="hint">입력한 등급 수량만큼 md 바디 재고로 넘어갑니다 (승인 필요)</span></div>';
     }
-    /* 아래: 최종 검수 완료 수량 (수정 가능) */
-    html+='<hr style="margin:18px 0;border:none;border-top:1px solid var(--line)">';
-    html+='<div style="font-weight:800;margin:2px 0 6px;font-size:14px">✅ 최종 검수 완료 수량 <span class="hint">(md 승인 대기 · 수정 가능)</span></div>';
-    if(!mid.length){ html+='<p class="hint">전송한 검수 내역이 없습니다.</p>'; }
-    else {
-      html+='<div style="overflow-x:auto"><table class="t" style="width:100%;border-collapse:collapse"><tr><th>색상 (제품)</th><th>예정일</th><th class="r">A</th><th class="r">B+</th><th class="r">B</th><th class="r">C</th><th class="r">합계</th></tr>';
-      grp(mid).forEach(function(g){
-        html+='<tr><td colspan="7" style="background:var(--green-l);font-weight:800;color:var(--green);padding:6px 8px">'+esc(g.cat)+'</td></tr>';
-        g.entries.forEach(function(e){
-          html+='<tr><td><b>'+esc(e.color||'')+'</b>'+(e.name?' <span style="color:var(--sub);font-size:11px">('+esc(e.name)+')</span>':'')+'</td>'
-            +'<td>'+(e.date?esc(e.date):'-')+'</td>'
-            +gradeCells(e,'data-psg2','prodStockCalc2')
-            +'<td class="r" id="psbot_'+e.id+'"><b>'+gsum(e.grades)+'</b></td></tr>';
-        });
-      });
+    /* 전송 완료 로그 */
+    var log=(S.prodSentLog||[]).slice(0,12);
+    if(log.length){
+      html+='<hr style="margin:16px 0;border:none;border-top:1px solid var(--line)">';
+      html+='<div style="font-weight:800;margin:2px 0 6px;font-size:14px">✅ 전송 완료 (md 승인 대기/반영)</div>';
+      html+='<div style="overflow-x:auto"><table class="t" style="width:100%;border-collapse:collapse"><tr><th>전송일</th><th>색상 (제품)</th><th class="r">A</th><th class="r">B+</th><th class="r">B</th><th class="r">C</th><th class="r">합계</th></tr>';
+      log.forEach(function(l){ html+='<tr><td>'+esc(l.at||'')+'</td><td>'+esc(l.color||'')+' <span style="color:var(--sub);font-size:12px">('+esc(l.name||'')+')</span></td>'
+        +'<td class="r">'+n(l.grades.A)+'</td><td class="r">'+n(l.grades.Bp)+'</td><td class="r">'+n(l.grades.B)+'</td><td class="r">'+n(l.grades.C)+'</td><td class="r"><b>'+gsum(l.grades)+'</b></td></tr>'; });
       html+='</table></div>';
-      html+='<div style="margin-top:10px"><button class="btn" onclick="prodStockSaveFinal()">💾 수정 저장 (md에 반영)</button></div>';
     }
     box.innerHTML=html;
   }
-  function calc(id){ var s=0; GK.forEach(function(k){var el=document.querySelector('[data-psg="'+id+'|'+k[0]+'"]'); s+=el?(+el.value||0):0;}); var t=document.getElementById('pstot_'+id); if(t)t.innerHTML='<b>'+s+'</b>'; }
-  function calc2(id){ var s=0; GK.forEach(function(k){var el=document.querySelector('[data-psg2="'+id+'|'+k[0]+'"]'); s+=el?(+el.value||0):0;}); var t=document.getElementById('psbot_'+id); if(t)t.innerHTML='<b>'+s+'</b>'; }
-  function readGrades(id,attr){ var g={}; GK.forEach(function(k){var el=document.querySelector('['+attr+'="'+id+'|'+k[0]+'"]'); g[k[0]]=el?Math.max(0,+el.value||0):0;}); return g; }
-  function writePS(msg){ var c=client(); if(!c){alert('연결 대기 중입니다. 잠시 후 다시 시도해 주세요.');return;}
-    c.from('production_schedule').upsert({id:'latest',updated_at:new Date().toISOString(),data:PS}).then(function(res){
-      if(res.error){alert('전송 실패: '+(res.error.message||'권한 확인'));return;} if(msg)alert(msg); render();
-    },function(er){alert('전송 실패: '+(er.message||er));}); }
+  function calc(key){ var s=0; GK.forEach(function(k){var el=document.querySelector('[data-psg="'+key+'|'+k[0]+'"]'); s+=el?n(el.value):0;});
+    S.prodGrades=S.prodGrades||{}; var g=S.prodGrades[key]=S.prodGrades[key]||{}; GK.forEach(function(k){var el=document.querySelector('[data-psg="'+key+'|'+k[0]+'"]'); g[k[0]]=el?Math.max(0,n(el.value)):0;});
+    var t=document.getElementById('pstot_'+key.replace(/[^a-zA-Z0-9]/g,'_')); if(t)t.innerHTML='<b>'+s+'</b>'; }
   function sendAll(){
-    var top=PS.filter(function(e){return e&&e.status!=='검수완료'&&e.status!=='승인완료';});
-    var n=0;
-    top.forEach(function(e){ var g=readGrades(e.id,'data-psg'); var t=gsum(g); if(t>0){ e.grades=g; e.gradeTotal=t; e.status='검수완료'; e.inspectedAt=(window.today||''); n++; } });
-    if(!n){ alert('전송할 항목이 없습니다. 등급 수량을 입력하세요.'); return; }
-    if(!confirm(n+'건을 검수 완료로 md에 전송할까요?'))return;
-    writePS(n+'건을 md로 전송했습니다. md 담당자 승인 대기.');
+    var list=items(); var toSend=[];
+    list.forEach(function(it){ var g=S.prodGrades[it.key]||{}; var t=gsum(g); if(t>0)toSend.push({it:it,g:g,t:t}); });
+    if(!toSend.length){ alert('등급 수량을 입력하세요.'); return; }
+    if(!confirm(toSend.length+'건을 검수 완료로 md에 전송할까요?')) return;
+    var c=client(); if(!c){ alert('md 연결 대기 중입니다. 잠시 후 다시 시도해 주세요.'); return; }
+    c.from('production_schedule').select('data').eq('id','latest').maybeSingle().then(function(res){
+      var arr=(res&&res.data&&res.data.data)||[]; if(!Array.isArray(arr))arr=[];
+      S.prodSentQty=S.prodSentQty||{}; S.prodSentLog=S.prodSentLog||[];
+      toSend.forEach(function(s){ var nm=prodName(s.it.pid), col=colorName(s.it.pid,s.it.cid);
+        var grades={A:n(s.g.A),Bp:n(s.g.Bp),B:n(s.g.B),C:n(s.g.C)};
+        var ex=arr.find(function(e){return e&&e.status!=='승인완료'&&(e.name||'')===nm&&(e.color||'')===col;});
+        var ent={id:'PS'+Date.now()+Math.floor(Math.random()*1000),name:nm,color:col,qty:s.t,date:s.it.due||(window.today||''),grades:grades,gradeTotal:s.t,status:'검수완료',at:(window.today||'')};
+        if(ex)Object.assign(ex,ent); else arr.push(ent);
+        S.prodSentQty[s.it.key]=n(S.prodSentQty[s.it.key])+s.t;
+        S.prodSentLog.unshift({name:nm,color:col,grades:grades,at:(window.today||'')});
+        delete S.prodGrades[s.it.key];
+      });
+      if(arr.length>200)arr=arr.slice(arr.length-200);
+      c.from('production_schedule').upsert({id:'latest',updated_at:new Date().toISOString(),data:arr}).then(function(r2){
+        if(r2&&r2.error){ alert('전송 실패: '+(r2.error.message||'권한 확인')); return; }
+        if(typeof save==='function')save(); render();
+        alert(toSend.length+'건을 md로 전송했습니다.\nmd → 생산·소싱 현황에서 승인하면 바디 재고(등급)에 반영됩니다.');
+      },function(er){ alert('전송 실패: '+(er.message||er)); });
+    },function(er){ alert('md 읽기 실패: '+(er.message||er)); });
   }
-  function saveFinal(){
-    var mid=PS.filter(function(e){return e&&e.status==='검수완료';});
-    mid.forEach(function(e){ var g=readGrades(e.id,'data-psg2'); e.grades=g; e.gradeTotal=gsum(g); });
-    writePS('수정 내용을 저장했습니다. (md에 반영)');
+  function undoSent(){
+    if(!confirm('가장 최근 전송을 취소하고 다시 검수할까요? (md에 이미 승인됐다면 md에서 별도 조정 필요)'))return;
+    var l=(S.prodSentLog||[]).shift(); if(!l)return; if(typeof save==='function')save(); render();
   }
-  window.prodStockLoad=load; window.prodStockCalc=calc; window.prodStockCalc2=calc2;
-  window.prodStockSendAll=sendAll; window.prodStockSaveFinal=saveFinal;
+  function toggle(cat){ CLOSED[cat]=!CLOSED[cat]; render(); }
+  function load(){ render(); }
+  window.prodStockLoad=load; window.prodStockG=calc; window.prodStockSendAll=sendAll; window.prodStockToggle=toggle; window.prodStockUndoSent=undoSent;
   document.addEventListener('click',function(e){
     var b=e.target.closest?e.target.closest('.tabs button[data-tab=pstock]'):null;
-    if(b)setTimeout(load,60);
+    if(b)setTimeout(load,40);
     if(e.target&&e.target.id==='pstockReload')load();
-    if(e.target&&e.target.id==='pstockClear'){ if(!confirm('제품 재고 예정 목록을 전체 비울까요?\n(생산 발주를 다시 확정하면 새로 채워집니다. md 승인·바디 재고에는 영향 없음)'))return;
-      var c=client(); if(!c){alert('연결 대기 중');return;} PS=[]; c.from('production_schedule').upsert({id:'latest',updated_at:new Date().toISOString(),data:[]}).then(function(){ render(); alert('목록을 비웠습니다.'); },function(){}); }
+    if(e.target&&e.target.id==='pstockClear'){ if(!confirm('전송 완료 로그와 검수 입력을 비울까요?\\n(생산 발주 확정 내역·미검수 잔량은 유지됩니다)'))return; S.prodSentLog=[]; S.prodGrades={}; if(typeof save==='function')save(); render(); }
   });
 })();
 
