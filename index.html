@@ -209,6 +209,7 @@ window.FIREBASE_CONFIG={
     <button data-tab="tests">테스트 요청</button>
     <button data-tab="products">제품·배합</button>
     <button data-tab="flakes">자재·재고</button>
+    <button data-tab="pstock">제품 재고 📦</button>
     <button data-tab="settings">설정·백업</button>
   </nav>
 </header>
@@ -324,11 +325,8 @@ window.FIREBASE_CONFIG={
       <div id="prodList"></div>
       <div class="addform">
         <div class="ln">
-          <input type="text" id="pIcon" placeholder="아이콘" style="width:60px;text-align:center" title="이모지 (예: 🪑)">
           <input type="text" id="pName" placeholder="제품명">
-          <input type="text" id="pCat1" placeholder="대분류" list="pc1List" style="width:100px">
-          <input type="text" id="pCat2" placeholder="중분류" list="pc2List" style="width:100px">
-          <input type="text" id="pCat3" placeholder="소분류" list="pc3List" style="width:100px">
+          <input type="text" id="pCat1" placeholder="대분류 (드롭램프/에쿠스/캐피/스톤)" list="pc1List" style="width:200px">
           <label class="fl">하루 생산량(개)<input type="number" id="pCap" min="0" placeholder="예: 30"></label>
           <button class="btn pri" id="addProd">제품 추가</button>
         </div>
@@ -384,6 +382,13 @@ window.FIREBASE_CONFIG={
     </div>
   </section>
 
+  <section class="tab" id="tab-pstock">
+    <div class="card">
+      <h2 class="sec">제품 재고 — 등급별 입고 검수</h2>
+      <p class="hint">md에서 넘어온 <b>생산 예정</b>을 생산팀이 검수해 등급(A/B+/B/C)별 최종 입고 수량을 입력하고 <b>발송</b>하면, md 담당자가 <b>승인</b>해 재고에 반영합니다. <button class="btn sm" id="pstockReload" style="margin-left:6px">↻ 새로고침</button></p>
+      <div id="pstockBody"></div>
+    </div>
+  </section>
   <section class="tab" id="tab-settings">
     <div id="mdLinkCard" class="card" style="max-width:720px"></div>
     <div class="card" style="max-width:560px">
@@ -1277,30 +1282,26 @@ function printSupSheet(supId){
   window.print();
 }
 
+var prodGroupClosed={};
 function renderProds(){
-  const _ps=S.products.slice().sort((a,b)=>(a.cat1||'힣').localeCompare(b.cat1||'힣')||(a.cat2||'힣').localeCompare(b.cat2||'힣')||(a.cat3||'').localeCompare(b.cat3||'')||(a.name||'').localeCompare(b.name||''));
-  const _c1s=[...new Set(S.products.map(p=>p.cat1).filter(Boolean))],_c2s=[...new Set(S.products.map(p=>p.cat2).filter(Boolean))],_c3s=[...new Set(S.products.map(p=>p.cat3).filter(Boolean))];
-  let _pg='';
-  $('#prodList').innerHTML=_ps.length?(_ps.map(p=>{
-    let _hdr='';const _gk=(p.cat1||'미분류')+(p.cat2?' › '+p.cat2:'');
-    if(_gk!==_pg){_pg=_gk;_hdr=`<div style="margin:14px 0 6px;font-weight:800;font-size:13px;color:var(--blue);border-bottom:2px solid var(--blue-l);padding-bottom:4px">${esc(p.cat1||'미분류')}${p.cat2?` <span style="opacity:.55;font-weight:600">› ${esc(p.cat2)}</span>`:''}</div>`;}
-    return _hdr+`
-    <div class="prod"><div class="top"><span style="font-size:18px">${esc(p.icon||'📦')}</span> <span class="nm">${esc(p.name)}</span><input type="text" data-ppn="${p.id}" value="${esc(p.printName||'')}" placeholder="인쇄명" style="width:130px;font-size:12px">
+  const groups={};
+  S.products.forEach(p=>{const g=(p.cat1||'미분류');(groups[g]=groups[g]||[]).push(p);});
+  const gkeys=Object.keys(groups).sort((a,b)=>a==='미분류'?1:(b==='미분류'?-1:a.localeCompare(b)));
+  const _c1s=[...new Set(S.products.map(p=>p.cat1).filter(Boolean))];
+  const cardOf=p=>`
+    <div class="prod"><div class="top"><span class="nm">${esc(p.name)}</span>
+      <span style="font-size:11px;color:var(--sub)">생산명</span><input type="text" data-ppn="${p.id}" value="${esc(p.printName||'')}" placeholder="생산팀 명칭" style="width:118px;font-size:12px">
+      <span style="font-size:11px;color:var(--sub);margin-left:4px">대분류</span><input data-pc1="${p.id}" value="${esc(p.cat1||'')}" placeholder="드롭램프/에쿠스…" list="pc1List" style="width:110px;font-size:12px">
       <span class="cap">하루 생산량 <input type="number" data-cap="${p.id}" value="${p.cap||''}" placeholder="0" min="0">개/일</span>
       ${!p.cap?'<span class="badge">생산량 입력 필요</span>':''}
       <button class="btn sm danger" data-delp="${p.id}" style="margin-left:auto">제품 삭제</button></div>
-      <div style="display:flex;gap:6px;margin:5px 0 9px;flex-wrap:wrap;align-items:center"><span style="font-size:11px;color:var(--sub)">분류·아이콘</span>
-        <input data-picon="${p.id}" value="${esc(p.icon||'')}" placeholder="아이콘" style="width:64px;text-align:center;font-size:13px" title="이모지 붙여넣기 (예: 🪑 🐴 🌳)">
-        <input data-pc1="${p.id}" value="${esc(p.cat1||'')}" placeholder="대분류" list="pc1List" style="width:104px;font-size:12px">
-        <input data-pc2="${p.id}" value="${esc(p.cat2||'')}" placeholder="중분류" list="pc2List" style="width:104px;font-size:12px">
-        <input data-pc3="${p.id}" value="${esc(p.cat3||'')}" placeholder="소분류" list="pc3List" style="width:104px;font-size:12px"></div>
       <table class="t pt">
       <tr><th>색상</th><th class="r" style="width:120px">개당 합계(kg)</th><th class="r" style="width:120px">플레이크(kg)</th><th class="r" style="width:100px">파우더(kg)</th><th style="width:110px">배합</th><th style="width:76px">비율 합계</th><th style="width:40px"></th></tr>
       ${p.colors.map(c=>{
         const sum=(c.recipe||[]).reduce((a,e)=>a+e.r,0);
         const open=openRecipe===p.id+'|'+c.id;
         return `<tr>
-          <td><b>${esc(c.name)}</b>${c.memo?' <span class="badge" title="'+esc(c.memo)+'">📝</span>':''}<input type="text" data-cpn="${p.id}|${c.id}" value="${esc(c.printName||'')}" placeholder="인쇄명" style="width:110px;font-size:11px;display:block;margin-top:3px"></td>
+          <td><b>${esc(c.name)}</b>${c.memo?' <span class="badge" title="'+esc(c.memo)+'">📝</span>':''} <span style="font-size:10px;color:var(--sub)">생산명</span> <input type="text" data-cpn="${p.id}|${c.id}" value="${esc(c.printName||'')}" placeholder="색상 명칭" style="width:96px;font-size:11px"></td>
           <td class="r"><input type="number" data-tot="${p.id}|${c.id}" value="${kg1((c.kgPer||0)+(c.powderKg||0))||''}" step="0.1" min="0" style="font-weight:700"></td>
           <td class="r"><input type="number" data-kg="${p.id}|${c.id}" value="${c.kgPer||''}" step="0.1" min="0"></td>
           <td class="r"><input type="number" data-pw="${p.id}|${c.id}" value="${c.powderKg||''}" step="0.1" min="0"></td>
@@ -1312,16 +1313,18 @@ function renderProds(){
       </table>
       <div style="margin-top:8px"><input type="text" data-addc="${p.id}" placeholder="색상 추가 후 Enter (예: 코카레드)" style="width:240px"></div>
     </div>`;
-  }).join('')+`<datalist id="pc1List">${_c1s.map(c=>`<option>${esc(c)}</option>`).join('')}</datalist><datalist id="pc2List">${_c2s.map(c=>`<option>${esc(c)}</option>`).join('')}</datalist><datalist id="pc3List">${_c3s.map(c=>`<option>${esc(c)}</option>`).join('')}</datalist>`):'<p class="hint">제품을 추가하세요.</p>';
+  $('#prodList').innerHTML=S.products.length?(gkeys.map(g=>{
+    const closed=!!prodGroupClosed[g];
+    return `<div class="pgh" data-pgt="${esc(g)}" style="cursor:pointer;margin:12px 0 6px;font-weight:800;font-size:14px;color:var(--blue);background:var(--blue-l);padding:9px 12px;border-radius:8px;display:flex;align-items:center;gap:8px">
+      <span style="font-size:12px">${closed?'▶':'▼'}</span> ${esc(g)} <span style="color:var(--sub);font-weight:600;font-size:12px">${groups[g].length}종</span></div>`
+      +(closed?'':groups[g].map(cardOf).join(''));
+  }).join('')+`<datalist id="pc1List">${_c1s.map(c=>`<option>${esc(c)}</option>`).join('')}</datalist>`):'<p class="hint">제품을 추가하세요.</p>';
+  document.querySelectorAll('[data-pgt]').forEach(hd=>hd.onclick=e=>{if(e.target.closest('input,button'))return;const g=hd.dataset.pgt;prodGroupClosed[g]=!prodGroupClosed[g];renderProds();});
   document.querySelectorAll('[data-cap]').forEach(i=>i.onchange=()=>{prodOf(i.dataset.cap).cap=Math.max(0,+i.value||0);render()});
   document.querySelectorAll('[data-ppn]').forEach(i=>i.onchange=()=>{prodOf(i.dataset.ppn).printName=i.value.trim();render()});
-  document.querySelectorAll('[data-picon]').forEach(i=>i.onchange=()=>{prodOf(i.dataset.picon).icon=i.value.trim();render()});
   document.querySelectorAll('[data-pc1]').forEach(i=>i.onchange=()=>{prodOf(i.dataset.pc1).cat1=i.value.trim();render()});
-  document.querySelectorAll('[data-pc2]').forEach(i=>i.onchange=()=>{prodOf(i.dataset.pc2).cat2=i.value.trim();render()});
-  document.querySelectorAll('[data-pc3]').forEach(i=>i.onchange=()=>{prodOf(i.dataset.pc3).cat3=i.value.trim();render()});
   document.querySelectorAll('[data-cpn]').forEach(i=>i.onchange=()=>{const[pid,cid]=i.dataset.cpn.split('|');colorOf(prodOf(pid),cid).printName=i.value.trim();render()});
   document.querySelectorAll('[data-kg]').forEach(i=>i.onchange=()=>{const[pid,cid]=i.dataset.kg.split('|');colorOf(prodOf(pid),cid).kgPer=Math.max(0,+i.value||0);render()});
-  /* 합계 입력 → 파우더 유지, 플레이크 자동 조정 / 파우더 입력 → 합계 유지, 플레이크 자동 조정 */
   document.querySelectorAll('[data-tot]').forEach(i=>i.onchange=()=>{const[pid,cid]=i.dataset.tot.split('|');const c=colorOf(prodOf(pid),cid);
     const tot=Math.max(0,+i.value||0);c.kgPer=kg1(Math.max(0,tot-(c.powderKg||0)));render()});
   document.querySelectorAll('[data-pw]').forEach(i=>i.onchange=()=>{const[pid,cid]=i.dataset.pw.split('|');const c=colorOf(prodOf(pid),cid);
@@ -1703,12 +1706,12 @@ function recipePage(items){
 function blendSheetSet(sup,items,dueTxt){
   const rows=items.map(it=>{
     if(it.pid){const p=prodOf(it.pid),c=colorOf(p,it.cid);
-      return {name:esc(p?pPName(p):'?'),color:esc(c?cPName(c):'?'),spec:'-',unit:'포대',qty:String(it.sacks),due:dueTxt||''}}
+      return {name:esc(c?cPName(c):'?'),color:'-',spec:'-',unit:'포대',qty:String(it.sacks),due:dueTxt||'',note:esc(p?('('+pPName(p)+')'):'')}}
     const f=flakeOf(it.fid);
-    return {name:esc(f?f.name:'?'),color:'-',spec:'-',unit:'kg',qty:String(it.kg),due:dueTxt||''};
+    return {name:esc(f?f.name:'?'),color:'-',spec:'-',unit:'kg',qty:String(it.kg),due:dueTxt||'',note:'파우더/기타'};
   });
   const sheet=officialSheet({title:'발 주 서',en:'PURCHASE ORDER',noLabel:'발주번호',docNo:poNoV(),staff:poStaff(),
-    recv:esc(sup?sup.name:''),recvSub:recvSubOf(sup),greet:'아래와 같이 발주합니다.',rows,noNote:true,
+    recv:esc(sup?sup.name:''),recvSub:recvSubOf(sup),greet:'아래 색상별 배합을 발주합니다. (비고: 사용 제품)',rows,
     note:'참고) 뒷장의 플레이크별 필요량 합계와 배합비를 함께 확인해 주세요. <b style="color:#c02020">※ 필수: 배합비 원본과 비율 대조 후 진행해 주세요.</b>',foot:'발주서',pageLabel:''});
   return sheet+flakePage(items)+recipePage(items);
 }
@@ -1833,7 +1836,7 @@ $('#nextM').onclick=()=>{curM++;if(curM>11){curM=0;curY++}render()};
 $('#goToday').onclick=()=>{const n=new Date();curY=n.getFullYear();curM=n.getMonth();selDate=today;render()};
 $('#stockViewBtn').onclick=()=>{showStockView=!showStockView;render()};
 $('#rangeBtn').onclick=()=>{showRange=!showRange;render()};
-$('#addProd').onclick=()=>{const v=$('#pName').value.trim();if(!v)return;S.products.push({id:uid(),name:v,cap:Math.max(0,+$('#pCap').value||0),colors:[],icon:($('#pIcon').value||'').trim(),cat1:($('#pCat1').value||'').trim(),cat2:($('#pCat2').value||'').trim(),cat3:($('#pCat3').value||'').trim()});$('#pName').value='';$('#pCap').value='';$('#pIcon').value='';$('#pCat1').value='';$('#pCat2').value='';$('#pCat3').value='';render()};
+$('#addProd').onclick=()=>{const v=$('#pName').value.trim();if(!v)return;S.products.push({id:uid(),name:v,cap:Math.max(0,+$('#pCap').value||0),colors:[],cat1:($('#pCat1').value||'').trim()});$('#pName').value='';$('#pCap').value='';$('#pCat1').value='';render()};
 $('#addOrder').onclick=()=>{
   const pid=$('#oProd').value,cid=$('#oColor').value,qty=+$('#oQty').value;
   if(!pid||!cid){alert('제품·색상을 먼저 등록해 주세요');return}
@@ -2341,6 +2344,90 @@ initFB();
     if(b)setTimeout(loadFb,60);
   });
   setTimeout(function(){ try{ loadFb(); }catch(e){} },2500);
+})();
+
+</script>
+<script>
+/* ===== production 제품 재고 — 생산예정 등급별 검수·발송 (production_schedule 공유) ===== */
+(function(){
+  'use strict';
+  var MD_URL='https://nwntvzgmxxpxjltykfkj.supabase.co';
+  var MD_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im53bnR2emdteHhweGpsdHlrZmtqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAyODQzMjAsImV4cCI6MjA5NTg2MDMyMH0.osUjhzlATjyP8JItMEWzkc8-hL9CF7ZNQeZmxukXQLE';
+  var psb=null, PS=[], busy=false;
+  var GK=[['A','A'],['Bp','B+'],['B','B'],['C','C']];
+  function client(){
+    try{
+      var url=(window.S&&S.mdlink&&S.mdlink.url)||MD_URL, key=(window.S&&S.mdlink&&S.mdlink.key)||MD_KEY;
+      if(!window.supabase)return null;
+      if(!psb)psb=window.supabase.createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false}});
+      return psb;
+    }catch(e){ return null; }
+  }
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+  function gsum(g){ g=g||{}; return (+g.A||0)+(+g.Bp||0)+(+g.B||0)+(+g.C||0); }
+
+  function load(){
+    var box=document.getElementById('pstockBody'); if(!box)return;
+    var c=client();
+    if(!c){ box.innerHTML='<p class="hint">연결 대기 중… 새로고침을 눌러주세요.</p>'; return; }
+    busy=true; box.innerHTML='<p class="hint">불러오는 중…</p>';
+    c.from('production_schedule').select('data').eq('id','latest').maybeSingle().then(function(res){
+      busy=false;
+      if(res.error){ box.innerHTML='<p class="hint">읽기 실패: '+esc(res.error.message||'권한/테이블 확인')+'</p>'; return; }
+      var a=res.data&&res.data.data; PS=Array.isArray(a)?a:[]; render();
+    },function(e){ busy=false; box.innerHTML='<p class="hint">읽기 실패: '+esc(e.message||e)+'</p>'; });
+  }
+
+  function render(){
+    var box=document.getElementById('pstockBody'); if(!box)return;
+    var pend=PS.filter(function(e){ return e && e.status!=='승인완료'; });
+    if(!pend.length){ box.innerHTML='<p class="hint">검수할 생산 예정이 없습니다. (md에서 생산 발주가 확정되면 여기로 넘어옵니다)</p>'; return; }
+    var rows=pend.map(function(e){
+      var g=e.grades||{}; var st=e.status||'검수대기';
+      var sc=st==='검수완료'?'green':(st==='승인완료'?'blue':'amber');
+      var gi=GK.map(function(k){ return '<td class="r"><input type="number" min="0" data-psg="'+e.id+'|'+k[0]+'" value="'+(g[k[0]]!=null?g[k[0]]:'')+'" placeholder="0" style="width:52px;text-align:right" oninput="prodStockCalc(\''+e.id+'\')"></td>'; }).join('');
+      return '<tr>'
+        +'<td><b>'+esc(e.color||'')+'</b>'+(e.name?' <span style="color:var(--sub);font-size:12px">('+esc(e.name)+')</span>':'')+'</td>'
+        +'<td class="r">'+(e.qty||0)+'개</td>'
+        +'<td>'+(e.date?esc(e.date):'-')+'</td>'
+        +gi
+        +'<td class="r" id="pstot_'+e.id+'"><b>'+gsum(g)+'</b></td>'
+        +'<td><span class="badge" style="background:var(--'+sc+'-l);color:var(--'+sc+')">'+esc(st)+'</span></td>'
+        +'<td class="r"><button class="btn sm pri" onclick="prodStockSend(\''+e.id+'\')">'+(st==='검수완료'?'재발송':'발송')+'</button></td>'
+        +'</tr>';
+    }).join('');
+    box.innerHTML='<div style="overflow-x:auto"><table class="t" style="width:100%;border-collapse:collapse">'
+      +'<tr><th>색상 (제품)</th><th class="r">예정</th><th>예정일</th><th class="r">A</th><th class="r">B+</th><th class="r">B</th><th class="r">C</th><th class="r">입고합계</th><th>상태</th><th></th></tr>'
+      +rows+'</table></div>'
+      +'<p class="hint" style="margin-top:8px">등급별 수량을 입력하고 <b>발송</b>하면 md 담당자에게 넘어갑니다. 발송 후에도 수정해 재발송할 수 있어요.</p>';
+  }
+  function calc(id){
+    var s=0; GK.forEach(function(k){ var el=document.querySelector('[data-psg="'+id+'|'+k[0]+'"]'); s+=el?(+el.value||0):0; });
+    var t=document.getElementById('pstot_'+id); if(t)t.innerHTML='<b>'+s+'</b>';
+  }
+  function send(id){
+    var e=PS.find(function(x){return x.id===id;}); if(!e)return;
+    var g={}; GK.forEach(function(k){ var el=document.querySelector('[data-psg="'+id+'|'+k[0]+'"]'); g[k[0]]=el?Math.max(0,+el.value||0):0; });
+    var tot=gsum(g);
+    if(!tot && !confirm('입고 수량이 0입니다. 그래도 발송할까요?'))return;
+    e.grades=g; e.gradeTotal=tot; e.status='검수완료'; e.inspectedAt=(window.today||'');
+    var c=client(); if(!c){ alert('연결 대기 중입니다. 잠시 후 다시 시도해 주세요.'); return; }
+    c.from('production_schedule').upsert({id:'latest',updated_at:new Date().toISOString(),data:PS}).then(function(res){
+      if(res.error){ alert('발송 실패: '+(res.error.message||'권한 확인')); return; }
+      alert('발송 완료 — md 담당자 승인 대기\n'+(e.color||'')+' : A '+g.A+' · B+ '+g.Bp+' · B '+g.B+' · C '+g.C+' (합계 '+tot+')');
+      render();
+    },function(er){ alert('발송 실패: '+(er.message||er)); });
+  }
+
+  window.prodStockLoad=load;
+  window.prodStockSend=send;
+  window.prodStockCalc=calc;
+
+  document.addEventListener('click',function(e){
+    var b=e.target.closest?e.target.closest('.tabs button[data-tab=pstock]'):null;
+    if(b)setTimeout(load,60);
+    var rb=e.target&&e.target.id==='pstockReload'; if(rb)load();
+  });
 })();
 
 </script>
