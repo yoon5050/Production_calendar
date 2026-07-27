@@ -963,9 +963,6 @@ function renderPanel(){
   h+=recs.map(r=>`<div class="rec"><span class="tag ${selDate<=today?'act':'plan'}">${selDate<=today?'생산':'예정'}</span>${esc(nameOf(r.pid,r.cid))} <b>${r.qty}개</b><button class="x" data-id="${r.id}">✕</button></div>`).join('');
   h+=autoRecs.map(a=>`<div class="rec"><span class="tag auto">자동예정</span>${esc(nameOf(a.pid,a.cid))} <b>${a.qty}개</b></div>`).join('');
   if(!recs.length&&!autoRecs.length)h+='<p class="hint">기록 없음</p>';
-  /* 생산 기록 바로 입력 */
-  h+=`<div class="addform"><b style="font-size:12px;color:var(--sub)">➕ ${selDate<=today?'생산 기록':'생산 예정'} 입력</b>
-    <div class="ln"><select id="dpProd" style="max-width:130px"></select><select id="dpColor" style="max-width:130px"></select><input type="number" id="dpQty" placeholder="수량" min="1" style="width:72px"><button class="btn pri sm" id="dpAdd">기록</button></div></div>`;
   /* 날짜 메모 (통화 내용 등) */
   h+=`<div class="addform"><b style="font-size:12px;color:var(--sub)">📝 메모 (통화 내용, 특이사항)</b>
     <textarea id="dMemo" rows="2" style="width:100%;resize:vertical" placeholder="예: 공장 통화 — 다음주 화요일 입고 예정">${esc(S.dayMemos[selDate]||'')}</textarea></div>`;
@@ -988,15 +985,6 @@ function renderPanel(){
   if(stRows.length)h+=`<ul class="cumlist"><b>📦 ${kdate(selDate)} 기준 예상 재고 (배합 포대 단위)</b>${stRows.join('')}</ul>`;
   $('#dayPanel').innerHTML=h;
   $('#rnBtn').onclick=()=>{if(S.research[selDate])delete S.research[selDate];else S.research[selDate]=true;render()};
-  $('#dpProd').innerHTML=S.products.map(p=>`<option value="${p.id}">${esc(p.name)}</option>`).join('')||'<option value="">제품 먼저 등록</option>';
-  const dpSync=()=>{const p=prodOf($('#dpProd').value);$('#dpColor').innerHTML=p?p.colors.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join(''):''};
-  dpSync();$('#dpProd').onchange=dpSync;
-  $('#dpAdd').onclick=()=>{
-    const pid=$('#dpProd').value,cid=$('#dpColor').value,qty=+$('#dpQty').value;
-    if(!pid||!cid){alert('제품·색상을 먼저 등록해 주세요 (제품·배합 탭)');return}
-    if(!qty||qty<1){alert('수량을 입력해 주세요');return}
-    S.records.push({id:uid(),date:selDate,pid,cid,qty});render();
-  };
   $('#holBtn').onclick=()=>{
     if(isOff(selDate)){ /* 해제: 지정 휴무면 제거, 주말 규칙이면 예외(근무일) 등록 */
       const i=S.holidays.indexOf(selDate);
@@ -1704,12 +1692,15 @@ function recipePage(items){
 }
 /* ── 발주서 3장 구성: 발주서(비고 없음) + 필요량 합계 + 배합비 ── */
 function blendSheetSet(sup,items,dueTxt){
-  const rows=items.map(it=>{
-    if(it.pid){const p=prodOf(it.pid),c=colorOf(p,it.cid);
-      return {name:esc(c?cPName(c):'?'),color:'-',spec:'-',unit:'포대',qty:String(it.sacks),due:dueTxt||'',note:esc(p?('('+pPName(p)+')'):'')}}
-    const f=flakeOf(it.fid);
-    return {name:esc(f?f.name:'?'),color:'-',spec:'-',unit:'kg',qty:String(it.kg),due:dueTxt||'',note:'파우더/기타'};
+  const byColor={};const flakes=[];
+  items.forEach(it=>{
+    if(it.pid){const p=prodOf(it.pid),c=colorOf(p,it.cid);const cn=c?cPName(c):'?';
+      const g=byColor[cn]||(byColor[cn]={sacks:0,parts:[]});
+      g.sacks+=(+it.sacks||0);g.parts.push((p?pPName(p):'?')+' '+(+it.sacks||0)+'포대');
+    } else {const fl=flakeOf(it.fid);flakes.push({name:fl?fl.name:'?',kg:it.kg});}
   });
+  const rows=Object.keys(byColor).map(cn=>({name:esc(cn),color:'-',spec:'-',unit:'포대',qty:String(byColor[cn].sacks),due:dueTxt||'',note:esc(byColor[cn].parts.join(', '))}));
+  flakes.forEach(fl=>rows.push({name:esc(fl.name),color:'-',spec:'-',unit:'kg',qty:String(fl.kg),due:dueTxt||'',note:'파우더/기타'}));
   const sheet=officialSheet({title:'발 주 서',en:'PURCHASE ORDER',noLabel:'발주번호',docNo:poNoV(),staff:poStaff(),
     recv:esc(sup?sup.name:''),recvSub:recvSubOf(sup),greet:'아래 색상별 배합을 발주합니다. (비고: 사용 제품)',rows,
     note:'참고) 뒷장의 플레이크별 필요량 합계와 배합비를 함께 확인해 주세요. <b style="color:#c02020">※ 필수: 배합비 원본과 비율 대조 후 진행해 주세요.</b>',foot:'발주서',pageLabel:''});
