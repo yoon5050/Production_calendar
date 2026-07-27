@@ -2396,7 +2396,7 @@ initFB();
       html+='</table></div>'; }
     /* 하단: 제품·배합 구조 등급 검수 입력 */
     html+='<hr style="margin:16px 0;border:none;border-top:1px solid var(--line)">';
-    html+='<div style="font-weight:800;margin:2px 0 6px;font-size:14px">🔬 등급 검수 입력 <span class="hint">(대분류별 · 검수 후 md로 전송)</span></div>';
+    html+='<div style="font-weight:800;margin:2px 0 6px;font-size:14px">🔬 등급 검수 입력 <span class="hint">(대분류별 · 검수 후 md로 전송)</span><button class="btn sm" onclick="prodStockLoad()" style="float:right">↻ 새로고침</button></div>';
     if(!list.length){ html+='<p class="hint">검수할 미검수 잔량이 없습니다. (모두 전송했거나 발주가 없습니다)</p>'; }
     else {
       html+='<div style="overflow-x:auto"><table class="t" style="width:100%;border-collapse:collapse"><tr><th>소분류 (색상)</th><th class="r">발주수량</th><th>예정일</th><th class="r">A</th><th class="r">B+</th><th class="r">B</th><th class="r">C</th><th class="r">검수합계</th></tr>';
@@ -2416,23 +2416,25 @@ initFB();
     }
     /* 제품 추가 입고 (기존/추가 재고 직접 등록) */
     html+='<hr style="margin:16px 0;border:none;border-top:1px solid var(--line)">';
-    html+='<div style="font-weight:800;margin:2px 0 6px;font-size:14px">＋ 제품 추가 입고 <span class="hint">(생산 발주와 별개로 기존/추가 재고를 등급별 등록)</span></div>';
-    html+='<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">'
-      +'<select id="paProd" onchange="prodStockPaSync()">'+(S.products||[]).map(function(p){return '<option value="'+p.id+'">'+esc(p.name)+'</option>';}).join('')+'</select>'
-      +'<select id="paColor"></select>'
-      +'<span class="hint">A</span><input id="paA" type="number" min="0" style="width:44px">'
-      +'<span class="hint">B+</span><input id="paBp" type="number" min="0" style="width:44px">'
-      +'<span class="hint">B</span><input id="paB" type="number" min="0" style="width:44px">'
-      +'<span class="hint">C</span><input id="paC" type="number" min="0" style="width:44px">'
-      +'<button class="btn pri sm" onclick="prodStockAddIn()">＋ 추가 입고 전송</button></div>';
+    html+='<div style="font-weight:800;margin:2px 0 6px;font-size:14px">＋ 제품 추가 입고 <span class="hint">(생산 발주와 별개로 기존/추가 재고를 등급별 등록 · 입고예정일 지정)</span></div>';
+    html+='<div style="overflow-x:auto"><table class="t" style="width:100%;border-collapse:collapse"><tr><th>소분류 (색상)</th><th class="r">발주수량</th><th>입고예정일</th><th class="r">A</th><th class="r">B+</th><th class="r">B</th><th class="r">C</th><th></th></tr>'
+      +'<tr><td><select id="paProd" onchange="prodStockPaSync()" style="max-width:120px">'+(S.products||[]).map(function(p){return '<option value="'+p.id+'">'+esc(p.name)+'</option>';}).join('')+'</select> <select id="paColor" style="max-width:120px"></select></td>'
+      +'<td class="r" style="color:var(--sub)">추가</td>'
+      +'<td><input id="paDate" type="date" value="'+(window.today||'')+'" style="width:130px"></td>'
+      +'<td class="r"><input id="paA" type="number" min="0" placeholder="0" style="width:48px;text-align:right"></td>'
+      +'<td class="r"><input id="paBp" type="number" min="0" placeholder="0" style="width:48px;text-align:right"></td>'
+      +'<td class="r"><input id="paB" type="number" min="0" placeholder="0" style="width:48px;text-align:right"></td>'
+      +'<td class="r"><input id="paC" type="number" min="0" placeholder="0" style="width:48px;text-align:right"></td>'
+      +'<td class="r"><button class="btn pri sm" onclick="prodStockAddIn()">＋ 전송</button></td></tr></table></div>';
     /* 전송 완료 = md 승인 대기 (승인되면 자동으로 사라짐) */
     var waiting=(PS||[]).filter(function(e){ return e&&e.status==='검수완료'&&e.grades; });
     html+='<hr style="margin:16px 0;border:none;border-top:1px solid var(--line)">';
     html+='<div style="font-weight:800;margin:2px 0 6px;font-size:14px">📤 전송 완료 · md 승인 대기 '+(waiting.length?'<span class="badge" style="background:var(--amber-l);color:var(--amber)">'+waiting.length+'</span>':'')+' <span class="hint">md에서 승인하면 목록에서 사라집니다</span></div>';
     if(!waiting.length){ html+='<p class="hint">승인 대기 중인 전송 내역이 없습니다.</p>'; }
-    else { html+='<div style="overflow-x:auto"><table class="t" style="width:100%;border-collapse:collapse"><tr><th>색상 (제품)</th><th>예정일</th><th class="r">A</th><th class="r">B+</th><th class="r">B</th><th class="r">C</th><th class="r">합계</th></tr>';
+    else { html+='<div style="overflow-x:auto"><table class="t" style="width:100%;border-collapse:collapse"><tr><th>색상 (제품)</th><th>예정일</th><th class="r">A</th><th class="r">B+</th><th class="r">B</th><th class="r">C</th><th class="r">합계</th><th></th></tr>';
       waiting.forEach(function(e){ var g=e.grades||{}; html+='<tr><td>'+esc(e.color||'')+' <span style="color:var(--sub);font-size:12px">('+esc(e.name||'')+')</span></td><td>'+(e.date?esc(e.date):'-')+'</td>'
-        +'<td class="r">'+n(g.A)+'</td><td class="r">'+n(g.Bp)+'</td><td class="r">'+n(g.B)+'</td><td class="r">'+n(g.C)+'</td><td class="r"><b>'+gsum(g)+'</b></td></tr>'; });
+        +'<td class="r">'+n(g.A)+'</td><td class="r">'+n(g.Bp)+'</td><td class="r">'+n(g.B)+'</td><td class="r">'+n(g.C)+'</td><td class="r"><b>'+gsum(g)+'</b></td>'
+        +'<td class="r"><button class="btn sm danger" onclick="prodStockDelSent(\''+e.id+'\')">삭제</button></td></tr>'; });
       html+='</table></div>'; }
     box.innerHTML=html;
     try{ paSync(); }catch(e){}
@@ -2444,14 +2446,24 @@ initFB();
     var t=gsum(g); if(t<=0){ alert('등급 수량을 입력하세요'); return; }
     if(!confirm('추가 입고 '+t+'개를 md로 전송할까요? (승인하면 바디 재고에 반영)')) return;
     var nm=p.name, col=colorName(pid,cid);
+    var dd=(document.getElementById('paDate')||{}).value||(window.today||'');
     var c=client(); if(!c){ alert('md 연결 대기 중입니다.'); return; }
     c.from('production_schedule').select('data').eq('id','latest').maybeSingle().then(function(res){
       var arr=(res&&res.data&&res.data.data)||[]; if(!Array.isArray(arr))arr=[];
       var ex=arr.find(function(e){return e&&e.status!=='승인완료'&&(e.name||'')===nm&&(e.color||'')===col;});
-      var ent={id:'PS'+Date.now()+Math.floor(Math.random()*1000),name:nm,color:col,qty:t,date:(window.today||''),grades:g,gradeTotal:t,status:'검수완료',at:(window.today||''),manualIn:true};
+      var ent={id:'PS'+Date.now()+Math.floor(Math.random()*1000),name:nm,color:col,qty:t,date:dd,grades:g,gradeTotal:t,status:'검수완료',at:(window.today||''),manualIn:true};
       if(ex)Object.assign(ex,ent); else arr.push(ent);
       if(arr.length>200)arr=arr.slice(arr.length-200);
       c.from('production_schedule').upsert({id:'latest',updated_at:new Date().toISOString(),data:arr}).then(function(r2){ if(r2&&r2.error){alert('전송 실패: '+(r2.error.message||''));return;} PS=arr; render(); alert('추가 입고 전송 완료 · md 승인 대기'); },function(er){alert('전송 실패: '+(er.message||er));});
+    },function(er){ alert('md 읽기 실패: '+(er.message||er)); });
+  }
+  function delSent(id){
+    if(!confirm('이 전송 항목을 삭제할까요? (md 승인 대기 목록에서 제거)'))return;
+    var c=client(); if(!c){ alert('md 연결 대기 중입니다.'); return; }
+    c.from('production_schedule').select('data').eq('id','latest').maybeSingle().then(function(res){
+      var arr=(res&&res.data&&res.data.data)||[]; if(!Array.isArray(arr))arr=[];
+      arr=arr.filter(function(e){ return !e||e.id!==id; });
+      c.from('production_schedule').upsert({id:'latest',updated_at:new Date().toISOString(),data:arr}).then(function(r2){ if(r2&&r2.error){alert('삭제 실패: '+(r2.error.message||''));return;} PS=arr; render(); },function(er){alert('삭제 실패: '+(er.message||er));});
     },function(er){ alert('md 읽기 실패: '+(er.message||er)); });
   }
   function calc(key){ var s=0; GK.forEach(function(k){var el=document.querySelector('[data-psg="'+key+'|'+k[0]+'"]'); s+=el?n(el.value):0;});
@@ -2490,7 +2502,7 @@ initFB();
   function toggle(cat){ CLOSED[cat]=!CLOSED[cat]; render(); }
   function load(){ render(); var c=client(); if(!c)return;
     c.from('production_schedule').select('data').eq('id','latest').maybeSingle().then(function(res){ var a=res&&res.data&&res.data.data; PS=Array.isArray(a)?a:[]; render(); },function(){}); }
-  window.prodStockLoad=load; window.prodStockG=calc; window.prodStockSendAll=sendAll; window.prodStockToggle=toggle; window.prodStockUndoSent=undoSent; window.prodStockAddIn=addIn; window.prodStockPaSync=paSync;
+  window.prodStockLoad=load; window.prodStockG=calc; window.prodStockSendAll=sendAll; window.prodStockToggle=toggle; window.prodStockUndoSent=undoSent; window.prodStockAddIn=addIn; window.prodStockPaSync=paSync; window.prodStockDelSent=delSent;
   document.addEventListener('click',function(e){
     var b=e.target.closest?e.target.closest('.tabs button[data-tab=pstock]'):null;
     if(b)setTimeout(load,40);
