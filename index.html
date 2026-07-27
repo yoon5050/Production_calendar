@@ -2346,7 +2346,7 @@ initFB();
   'use strict';
   var MD_URL='https://nwntvzgmxxpxjltykfkj.supabase.co';
   var MD_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im53bnR2emdteHhweGpsdHlrZmtqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAyODQzMjAsImV4cCI6MjA5NTg2MDMyMH0.osUjhzlATjyP8JItMEWzkc8-hL9CF7ZNQeZmxukXQLE';
-  var psb=null, CLOSED={};
+  var psb=null, CLOSED={}, PS=[];
   var GK=[['A','A'],['Bp','B+'],['B','B'],['C','C']];
   function client(){ try{ var url=(typeof S!=='undefined'&&S.mdlink&&S.mdlink.url)||MD_URL, key=(typeof S!=='undefined'&&S.mdlink&&S.mdlink.key)||MD_KEY;
     if(!window.supabase)return null; if(!psb)psb=window.supabase.createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false}}); return psb; }catch(e){return null;} }
@@ -2414,17 +2414,45 @@ initFB();
       html+='</table></div>';
       html+='<div style="margin-top:10px"><button class="btn pri" onclick="prodStockSendAll()">✅ 검수 완료 · md로 전송</button> <span class="hint">입력한 등급 수량만큼 md 바디 재고로 넘어갑니다 (승인 필요)</span></div>';
     }
-    /* 전송 완료 로그 */
-    var log=(S.prodSentLog||[]).slice(0,12);
-    if(log.length){
-      html+='<hr style="margin:16px 0;border:none;border-top:1px solid var(--line)">';
-      html+='<div style="font-weight:800;margin:2px 0 6px;font-size:14px">✅ 전송 완료 (md 승인 대기/반영)</div>';
-      html+='<div style="overflow-x:auto"><table class="t" style="width:100%;border-collapse:collapse"><tr><th>전송일</th><th>색상 (제품)</th><th class="r">A</th><th class="r">B+</th><th class="r">B</th><th class="r">C</th><th class="r">합계</th></tr>';
-      log.forEach(function(l){ html+='<tr><td>'+esc(l.at||'')+'</td><td>'+esc(l.color||'')+' <span style="color:var(--sub);font-size:12px">('+esc(l.name||'')+')</span></td>'
-        +'<td class="r">'+n(l.grades.A)+'</td><td class="r">'+n(l.grades.Bp)+'</td><td class="r">'+n(l.grades.B)+'</td><td class="r">'+n(l.grades.C)+'</td><td class="r"><b>'+gsum(l.grades)+'</b></td></tr>'; });
-      html+='</table></div>';
-    }
+    /* 제품 추가 입고 (기존/추가 재고 직접 등록) */
+    html+='<hr style="margin:16px 0;border:none;border-top:1px solid var(--line)">';
+    html+='<div style="font-weight:800;margin:2px 0 6px;font-size:14px">＋ 제품 추가 입고 <span class="hint">(생산 발주와 별개로 기존/추가 재고를 등급별 등록)</span></div>';
+    html+='<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">'
+      +'<select id="paProd" onchange="prodStockPaSync()">'+(S.products||[]).map(function(p){return '<option value="'+p.id+'">'+esc(p.name)+'</option>';}).join('')+'</select>'
+      +'<select id="paColor"></select>'
+      +'<span class="hint">A</span><input id="paA" type="number" min="0" style="width:44px">'
+      +'<span class="hint">B+</span><input id="paBp" type="number" min="0" style="width:44px">'
+      +'<span class="hint">B</span><input id="paB" type="number" min="0" style="width:44px">'
+      +'<span class="hint">C</span><input id="paC" type="number" min="0" style="width:44px">'
+      +'<button class="btn pri sm" onclick="prodStockAddIn()">＋ 추가 입고 전송</button></div>';
+    /* 전송 완료 = md 승인 대기 (승인되면 자동으로 사라짐) */
+    var waiting=(PS||[]).filter(function(e){ return e&&e.status==='검수완료'&&e.grades; });
+    html+='<hr style="margin:16px 0;border:none;border-top:1px solid var(--line)">';
+    html+='<div style="font-weight:800;margin:2px 0 6px;font-size:14px">📤 전송 완료 · md 승인 대기 '+(waiting.length?'<span class="badge" style="background:var(--amber-l);color:var(--amber)">'+waiting.length+'</span>':'')+' <span class="hint">md에서 승인하면 목록에서 사라집니다</span></div>';
+    if(!waiting.length){ html+='<p class="hint">승인 대기 중인 전송 내역이 없습니다.</p>'; }
+    else { html+='<div style="overflow-x:auto"><table class="t" style="width:100%;border-collapse:collapse"><tr><th>색상 (제품)</th><th>예정일</th><th class="r">A</th><th class="r">B+</th><th class="r">B</th><th class="r">C</th><th class="r">합계</th></tr>';
+      waiting.forEach(function(e){ var g=e.grades||{}; html+='<tr><td>'+esc(e.color||'')+' <span style="color:var(--sub);font-size:12px">('+esc(e.name||'')+')</span></td><td>'+(e.date?esc(e.date):'-')+'</td>'
+        +'<td class="r">'+n(g.A)+'</td><td class="r">'+n(g.Bp)+'</td><td class="r">'+n(g.B)+'</td><td class="r">'+n(g.C)+'</td><td class="r"><b>'+gsum(g)+'</b></td></tr>'; });
+      html+='</table></div>'; }
     box.innerHTML=html;
+    try{ paSync(); }catch(e){}
+  }
+  function paSync(){ var sel=document.getElementById('paProd'), cc=document.getElementById('paColor'); if(!sel||!cc)return; var p=pOf(sel.value); cc.innerHTML=p?((p.colors||[]).map(function(c){return '<option value="'+c.id+'">'+esc(c.name)+'</option>';}).join('')):''; }
+  function addIn(){ var pid=(document.getElementById('paProd')||{}).value, cid=(document.getElementById('paColor')||{}).value;
+    var p=pOf(pid); if(!p){ alert('제품을 선택하세요'); return; }
+    var g={A:n((document.getElementById('paA')||{}).value),Bp:n((document.getElementById('paBp')||{}).value),B:n((document.getElementById('paB')||{}).value),C:n((document.getElementById('paC')||{}).value)};
+    var t=gsum(g); if(t<=0){ alert('등급 수량을 입력하세요'); return; }
+    if(!confirm('추가 입고 '+t+'개를 md로 전송할까요? (승인하면 바디 재고에 반영)')) return;
+    var nm=p.name, col=colorName(pid,cid);
+    var c=client(); if(!c){ alert('md 연결 대기 중입니다.'); return; }
+    c.from('production_schedule').select('data').eq('id','latest').maybeSingle().then(function(res){
+      var arr=(res&&res.data&&res.data.data)||[]; if(!Array.isArray(arr))arr=[];
+      var ex=arr.find(function(e){return e&&e.status!=='승인완료'&&(e.name||'')===nm&&(e.color||'')===col;});
+      var ent={id:'PS'+Date.now()+Math.floor(Math.random()*1000),name:nm,color:col,qty:t,date:(window.today||''),grades:g,gradeTotal:t,status:'검수완료',at:(window.today||''),manualIn:true};
+      if(ex)Object.assign(ex,ent); else arr.push(ent);
+      if(arr.length>200)arr=arr.slice(arr.length-200);
+      c.from('production_schedule').upsert({id:'latest',updated_at:new Date().toISOString(),data:arr}).then(function(r2){ if(r2&&r2.error){alert('전송 실패: '+(r2.error.message||''));return;} PS=arr; render(); alert('추가 입고 전송 완료 · md 승인 대기'); },function(er){alert('전송 실패: '+(er.message||er));});
+    },function(er){ alert('md 읽기 실패: '+(er.message||er)); });
   }
   function calc(key){ var s=0; GK.forEach(function(k){var el=document.querySelector('[data-psg="'+key+'|'+k[0]+'"]'); s+=el?n(el.value):0;});
     S.prodGrades=S.prodGrades||{}; var g=S.prodGrades[key]=S.prodGrades[key]||{}; GK.forEach(function(k){var el=document.querySelector('[data-psg="'+key+'|'+k[0]+'"]'); g[k[0]]=el?Math.max(0,n(el.value)):0;});
@@ -2450,7 +2478,7 @@ initFB();
       if(arr.length>200)arr=arr.slice(arr.length-200);
       c.from('production_schedule').upsert({id:'latest',updated_at:new Date().toISOString(),data:arr}).then(function(r2){
         if(r2&&r2.error){ alert('전송 실패: '+(r2.error.message||'권한 확인')); return; }
-        if(typeof save==='function')save(); render();
+        PS=arr; if(typeof save==='function')save(); render();
         alert(toSend.length+'건을 md로 전송했습니다.\nmd → 생산·소싱 현황에서 승인하면 바디 재고(등급)에 반영됩니다.');
       },function(er){ alert('전송 실패: '+(er.message||er)); });
     },function(er){ alert('md 읽기 실패: '+(er.message||er)); });
@@ -2460,8 +2488,9 @@ initFB();
     var l=(S.prodSentLog||[]).shift(); if(!l)return; if(typeof save==='function')save(); render();
   }
   function toggle(cat){ CLOSED[cat]=!CLOSED[cat]; render(); }
-  function load(){ render(); }
-  window.prodStockLoad=load; window.prodStockG=calc; window.prodStockSendAll=sendAll; window.prodStockToggle=toggle; window.prodStockUndoSent=undoSent;
+  function load(){ render(); var c=client(); if(!c)return;
+    c.from('production_schedule').select('data').eq('id','latest').maybeSingle().then(function(res){ var a=res&&res.data&&res.data.data; PS=Array.isArray(a)?a:[]; render(); },function(){}); }
+  window.prodStockLoad=load; window.prodStockG=calc; window.prodStockSendAll=sendAll; window.prodStockToggle=toggle; window.prodStockUndoSent=undoSent; window.prodStockAddIn=addIn; window.prodStockPaSync=paSync;
   document.addEventListener('click',function(e){
     var b=e.target.closest?e.target.closest('.tabs button[data-tab=pstock]'):null;
     if(b)setTimeout(load,40);
