@@ -2384,15 +2384,13 @@ initFB();
     var list=items();
     var html='';
     /* 상단: 생산 발주 확정 내역 */
-    html+='<div style="font-weight:800;margin:2px 0 6px;font-size:14px">📋 생산 발주 확정 내역</div>';
-    var hist=(S.history||[]).slice(0,8);
-    if(!hist.length){ html+='<p class="hint">확정된 생산 발주가 없습니다. (생산 발주 🏭 탭에서 발주를 확정하세요)</p>'; }
-    else { html+='<div style="overflow-x:auto"><table class="t" style="width:100%;border-collapse:collapse"><tr><th>확정일</th><th>품목 (제품·색상)</th><th class="r">수량</th></tr>';
-      hist.forEach(function(b){ (b.orders||[]).forEach(function(o,i){
-        html+='<tr>'+(i===0?'<td rowspan="'+(b.orders.length)+'">'+esc(b.date||'')+(b.start?'<div style="font-size:11px;color:var(--sub)">시작 '+esc(b.start)+'</div>':'')+'</td>':'')
-          +'<td>'+esc(colorName(o.pid,o.cid)||o.name||'')+' <span style="color:var(--sub);font-size:12px">('+esc(prodName(o.pid)||'')+')</span></td>'
-          +'<td class="r">'+n(o.qty)+'개</td></tr>';
-      }); });
+    html+='<div style="font-weight:800;margin:2px 0 6px;font-size:14px">📋 생산 발주 확정 내역 <span class="hint">(제품·색상별 검수 대기 수량 · 아래 드롭다운에서 가져와 검수)</span></div>';
+    if(!list.length){ html+='<p class="hint">검수 대기 중인 생산 발주가 없습니다. (생산 발주 🏭 탭에서 발주를 확정하면 자동으로 넘어옵니다)</p>'; }
+    else { html+='<div style="overflow-x:auto"><table class="t" style="width:100%;border-collapse:collapse"><tr><th>소분류 (색상)</th><th>제품</th><th class="r">발주수량</th><th>예정일</th></tr>';
+      grp(list).forEach(function(g){
+        html+='<tr><td colspan="4" style="background:var(--blue-l);font-weight:800;color:var(--blue);padding:6px 8px">'+esc(g.cat)+'</td></tr>';
+        g.items.forEach(function(it){ html+='<tr><td><b>'+esc(colorName(it.pid,it.cid)||'')+'</b></td><td style="color:var(--sub);font-size:12px">'+esc(prodName(it.pid)||'')+'</td><td class="r"><b>'+it.pending+'</b>개</td><td>'+(it.due?esc(it.due):'-')+'</td></tr>'; });
+      });
       html+='</table></div>'; }
     /* 하단: 제품·배합 구조 등급 검수 입력 */
     html+='<hr style="margin:16px 0;border:none;border-top:1px solid var(--line)">';
