@@ -2359,75 +2359,114 @@ initFB();
   function colorName(pid,cid){ var p=pOf(pid),c=p&&cOf(p,cid); return c?c.name:''; }
   function prodName(pid){ var p=pOf(pid); return p?p.name:''; }
 
-  /* 생산 발주 확정 이력(S.history)에서 미검수 잔량 집계 */
-  function items(){
-    S.prodSentQty=S.prodSentQty||{}; S.prodGrades=S.prodGrades||{};
-    var agg={},order=[];
-    (S.history||[]).forEach(function(b){ (b.orders||[]).forEach(function(o){
-      if(!o.pid||!o.cid)return; var key=o.pid+'|'+o.cid;
-      if(!agg[key]){ agg[key]={key:key,pid:o.pid,cid:o.cid,qty:0,due:''}; order.push(key); }
-      agg[key].qty+=n(o.qty);
-      var d=b.start||b.date||''; if(d&&(!agg[key].due||d<agg[key].due))agg[key].due=d;
-    });});
-    var out=[]; order.forEach(function(k){ var it=agg[k]; it.pending=Math.max(0,it.qty-(n(S.prodSentQty[k]))); if(it.pending>0)out.push(it); });
+  /* ===== 현재 재고(로컬) : pid|cid → {A,Bp,B,C} ===== */
+  function stockList(){
+    S.prodStock=S.prodStock||{};
+    var out=[];
+    Object.keys(S.prodStock).forEach(function(k){
+      var s=S.prodStock[k]||{}; var t=gsum(s); if(t<=0)return;
+      var pp=k.split('|');
+      out.push({key:k,pid:pp[0],cid:pp[1],g:{A:n(s.A),Bp:n(s.Bp),B:n(s.B),C:n(s.C)},tot:t});
+    });
     return out;
+  }
+  function addStock(pid,cid,g){
+    S.prodStock=S.prodStock||{}; var k=pid+'|'+cid;
+    var s=S.prodStock[k]=S.prodStock[k]||{A:0,Bp:0,B:0,C:0};
+    s.A=n(s.A)+n(g.A); s.Bp=n(s.Bp)+n(g.Bp); s.B=n(s.B)+n(g.B); s.C=n(s.C)+n(g.C);
   }
   function grp(list){ var m={},order=[];
     list.forEach(function(it){ var c=catOf(it.pid); if(!m[c]){m[c]=[];order.push(c);} m[c].push(it); });
     order.sort(); return order.map(function(c){ return {cat:c, items:m[c].sort(function(a,b){return colorName(a.pid,a.cid).localeCompare(colorName(b.pid,b.cid));})}; });
   }
-  function gradeCells(key){ S.prodGrades=S.prodGrades||{}; var g=S.prodGrades[key]||{};
-    return GK.map(function(k){ var v=(g[k[0]]!=null&&g[k[0]]!=='')?g[k[0]]:''; return '<td class="r"><input type="number" min="0" data-psg="'+key+'|'+k[0]+'" value="'+v+'" placeholder="0" style="width:48px;text-align:right" oninput="prodStockG(\''+key+'\')"></td>'; }).join(''); }
+  /* 발주서(생산 발주 확정) 목록 — 최근일자 우선 */
+  function batches(){
+    var bs=(S.history||[]).map(function(b,i){ return {ref:b, key:(b.id||('B'+i)), date:(b.start||b.date||''), orders:(b.orders||[]).filter(function(o){return o&&o.pid&&o.cid;})}; });
+    bs=bs.filter(function(b){return b.orders.length;});
+    bs.sort(function(a,b){ return a.date<b.date?1:a.date>b.date?-1:0; });
+    return bs;
+  }
+  /* md 전송 공통 */
+  function pushMd(nm,col,g,t,due,extra,okMsg){
+    var c=client(); if(!c){ alert('md 연결 대기 중입니다. 잠시 후 다시 시도해 주세요.'); return; }
+    c.from('production_schedule').select('data').eq('id','latest').maybeSingle().then(function(res){
+      var arr=(res&&res.data&&res.data.data)||[]; if(!Array.isArray(arr))arr=[];
+      var ex=arr.find(function(e){return e&&e.status!=='승인완료'&&(e.name||'')===nm&&(e.color||'')===col;});
+      var ent={id:'PS'+Date.now()+Math.floor(Math.random()*1000),name:nm,color:col,qty:t,date:due||(window.today||''),grades:{A:n(g.A),Bp:n(g.Bp),B:n(g.B),C:n(g.C)},gradeTotal:t,status:'검수완료',at:(window.today||'')};
+      if(extra)Object.assign(ent,extra);
+      if(ex)Object.assign(ex,ent); else arr.push(ent);
+      if(arr.length>200)arr=arr.slice(arr.length-200);
+      c.from('production_schedule').upsert({id:'latest',updated_at:new Date().toISOString(),data:arr}).then(function(r2){
+        if(r2&&r2.error){ alert('전송 실패: '+(r2.error.message||'권한 확인')); return; }
+        PS=arr; if(typeof save==='function')save(); render();
+        if(okMsg)alert(okMsg);
+      },function(er){ alert('전송 실패: '+(er.message||er)); });
+    },function(er){ alert('md 읽기 실패: '+(er.message||er)); });
+  }
 
   function render(){
     var box=document.getElementById('pstockBody'); if(!box)return;
-    var list=items();
     var html='';
-    /* 상단: 생산 발주 확정 내역 */
-    html+='<div style="font-weight:800;margin:2px 0 6px;font-size:14px">📋 생산 발주 확정 내역 <span class="hint">(제품·색상별 검수 대기 수량 · 아래 드롭다운에서 가져와 검수)</span></div>';
-    if(!list.length){ html+='<p class="hint">검수 대기 중인 생산 발주가 없습니다. (생산 발주 🏭 탭에서 발주를 확정하면 자동으로 넘어옵니다)</p>'; }
-    else { html+='<div style="overflow-x:auto"><table class="t" style="width:100%;border-collapse:collapse"><tr><th>소분류 (색상)</th><th>제품</th><th class="r">발주수량</th><th>예정일</th></tr>';
-      grp(list).forEach(function(g){
-        html+='<tr><td colspan="4" style="background:var(--blue-l);font-weight:800;color:var(--blue);padding:6px 8px">'+esc(g.cat)+'</td></tr>';
-        g.items.forEach(function(it){ html+='<tr><td><b>'+esc(colorName(it.pid,it.cid)||'')+'</b></td><td style="color:var(--sub);font-size:12px">'+esc(prodName(it.pid)||'')+'</td><td class="r"><b>'+it.pending+'</b>개</td><td>'+(it.due?esc(it.due):'-')+'</td></tr>'; });
-      });
-      html+='</table></div>'; }
-    /* 하단: 제품·배합 구조 등급 검수 입력 */
-    html+='<hr style="margin:16px 0;border:none;border-top:1px solid var(--line)">';
-    html+='<div style="font-weight:800;margin:2px 0 6px;font-size:14px">🔬 등급 검수 입력 <span class="hint">(발주 확정 내역에서 가져와 등급 검수 → md 전송)</span><button class="btn sm" onclick="prodStockLoad()" style="float:right">↻ 새로고침</button></div>';
-    S.prodPicked=S.prodPicked||[];
-    var pickable=list.filter(function(it){ return S.prodPicked.indexOf(it.key)<0; });
-    var pickedItems=list.filter(function(it){ return S.prodPicked.indexOf(it.key)>=0; });
-    html+='<div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap">'
-      +'<select id="pickSel" style="max-width:320px">'+(pickable.length?pickable.map(function(it){return '<option value="'+it.key+'">'+esc(colorName(it.pid,it.cid)||'')+' ('+esc(prodName(it.pid)||'')+') · 발주 '+it.pending+'개'+(it.due?' · '+esc(it.due):'')+'</option>';}).join(''):'<option value="">— 가져올 발주 확정 내역 없음 —</option>')+'</select>'
-      +'<button class="btn sm pri" onclick="prodStockPick()">＋ 가져오기</button>'
-      +'<span class="hint">가져올 항목 '+pickable.length+'건</span></div>';
-    if(!pickedItems.length){ html+='<p class="hint">위 드롭다운에서 발주 확정 내역을 <b>가져오기</b> 하면, 아래에 발주수량·예정일이 뜨고 등급을 입력할 수 있어요.</p>'; }
+    /* 상단: 현재 재고 (제품·색상별 등급 수량) */
+    var slist=stockList();
+    html+='<div style="font-weight:800;margin:2px 0 6px;font-size:14px">📦 현재 재고 <span class="hint">(제품·색상별 등급 수량 · 검수/추가입고로 누적)</span><button class="btn sm" onclick="prodStockLoad()" style="float:right">↻ 새로고침</button></div>';
+    if(!slist.length){ html+='<p class="hint">아직 재고가 없습니다. 아래에서 발주 확정 내역을 검수하거나 제품을 추가 입고하면 여기에 등급별로 쌓입니다.</p>'; }
     else {
-      html+='<div style="overflow-x:auto"><table class="t" style="width:100%;border-collapse:collapse"><tr><th>소분류 (색상)</th><th class="r">발주수량</th><th>예정일</th><th class="r">A</th><th class="r">B+</th><th class="r">B</th><th class="r">C</th><th class="r">검수합계</th><th></th></tr>';
-      pickedItems.forEach(function(it){
-        html+='<tr><td><b>'+esc(colorName(it.pid,it.cid)||'')+'</b> <span style="color:var(--sub);font-size:12px">('+esc(prodName(it.pid)||'')+')</span></td>'
-          +'<td class="r">'+it.pending+'개</td><td>'+(it.due?esc(it.due):'-')+'</td>'
-          +gradeCells(it.key)
-          +'<td class="r" id="pstot_'+it.key.replace(/[^a-zA-Z0-9]/g,'_')+'"><b>'+gsum(S.prodGrades[it.key])+'</b></td>'
-          +'<td class="r"><button class="btn sm ghost" onclick="prodStockUnpick(\''+it.key+'\')">빼기</button></td></tr>';
+      var tot={A:0,Bp:0,B:0,C:0};
+      html+='<div style="overflow-x:auto"><table class="t" style="width:100%;border-collapse:collapse"><tr><th>소분류 (색상)</th><th>제품</th><th class="r">A</th><th class="r">B+</th><th class="r">B</th><th class="r">C</th><th class="r">합계</th></tr>';
+      grp(slist).forEach(function(gg){
+        var gt={A:0,Bp:0,B:0,C:0}; gg.items.forEach(function(it){gt.A+=it.g.A;gt.Bp+=it.g.Bp;gt.B+=it.g.B;gt.C+=it.g.C;});
+        var gtsum=gt.A+gt.Bp+gt.B+gt.C; tot.A+=gt.A;tot.Bp+=gt.Bp;tot.B+=gt.B;tot.C+=gt.C;
+        var ck=String(gg.cat).replace(/['"\\]/g,''); var closed=!!CLOSED[gg.cat];
+        html+='<tr style="cursor:pointer" onclick="prodStockToggle(\''+ck+'\')"><td colspan="2" style="background:var(--blue-l);font-weight:800;color:var(--blue);padding:6px 8px">'+(closed?'▶':'▼')+' '+esc(gg.cat)+'</td>'
+          +'<td class="r" style="background:var(--blue-l);font-weight:700">'+gt.A+'</td><td class="r" style="background:var(--blue-l);font-weight:700">'+gt.Bp+'</td><td class="r" style="background:var(--blue-l);font-weight:700">'+gt.B+'</td><td class="r" style="background:var(--blue-l);font-weight:700">'+gt.C+'</td><td class="r" style="background:var(--blue-l);font-weight:800">'+gtsum+'</td></tr>';
+        if(!closed) gg.items.forEach(function(it){
+          html+='<tr><td><b>'+esc(colorName(it.pid,it.cid)||'')+'</b></td><td style="color:var(--sub);font-size:12px">'+esc(prodName(it.pid)||'')+'</td>'
+            +'<td class="r">'+it.g.A+'</td><td class="r">'+it.g.Bp+'</td><td class="r">'+it.g.B+'</td><td class="r">'+it.g.C+'</td><td class="r"><b>'+it.tot+'</b></td></tr>';
+        });
       });
+      html+='<tr><td colspan="2" style="text-align:right;font-weight:800;padding:6px 8px">전체 합계</td><td class="r" style="font-weight:800">'+tot.A+'</td><td class="r" style="font-weight:800">'+tot.Bp+'</td><td class="r" style="font-weight:800">'+tot.B+'</td><td class="r" style="font-weight:800">'+tot.C+'</td><td class="r" style="font-weight:800">'+(tot.A+tot.Bp+tot.B+tot.C)+'</td></tr>';
       html+='</table></div>';
-      html+='<div style="margin-top:10px"><button class="btn pri" onclick="prodStockSendAll()">✅ 검수 완료 · md로 전송</button> <span class="hint">가져온 항목의 등급 수량이 md 바디 재고로 넘어갑니다 (승인 필요)</span></div>';
     }
-    /* 제품 추가 입고 (기존/추가 재고 직접 등록) */
+    /* 등급 검수 입력 : 발주일자 → 발주수량 종속 드롭다운 */
     html+='<hr style="margin:16px 0;border:none;border-top:1px solid var(--line)">';
-    html+='<div style="font-weight:800;margin:2px 0 6px;font-size:14px">＋ 제품 추가 입고 <span class="hint">(생산 발주와 별개로 기존/추가 재고를 등급별 등록 · 입고예정일 지정)</span></div>';
-    html+='<div style="overflow-x:auto"><table class="t" style="width:100%;border-collapse:collapse"><tr><th>소분류 (색상)</th><th class="r">발주수량</th><th>입고예정일</th><th class="r">A</th><th class="r">B+</th><th class="r">B</th><th class="r">C</th><th></th></tr>'
+    html+='<div style="font-weight:800;margin:2px 0 6px;font-size:14px">🔬 등급 검수 입력 <span class="hint">(발주서 일자 → 발주 항목 → 등급 검수 → 재고 반영 + md 전송)</span></div>';
+    var bs=batches();
+    S.psSel=S.psSel||{b:'',o:-1};
+    if(!bs.length){ html+='<p class="hint">검수할 생산 발주 확정 내역이 없습니다. (생산 발주 🏭 탭에서 발주를 확정하면 여기 드롭다운에 나타납니다)</p>'; }
+    else {
+      var curB=bs.filter(function(b){return b.key===S.psSel.b;})[0]; if(!curB){ curB=bs[0]; S.psSel.b=curB.key; S.psSel.o=-1; }
+      html+='<div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap">';
+      html+='<select id="psBatch" onchange="prodStockBatch()" style="max-width:210px">'+bs.map(function(b){ var cnt=b.orders.length; return '<option value="'+esc(b.key)+'"'+(b.key===S.psSel.b?' selected':'')+'>'+esc(b.date||'(일자없음)')+' · '+cnt+'건</option>'; }).join('')+'</select>';
+      html+='<span style="color:var(--sub)">▸</span>';
+      html+='<select id="psOrder" onchange="prodStockOrder()" style="max-width:280px"><option value="-1">— 발주 항목 선택 —</option>'+curB.orders.map(function(o,i){ return '<option value="'+i+'"'+(i===S.psSel.o?' selected':'')+'>'+esc(colorName(o.pid,o.cid)||'')+' ('+esc(prodName(o.pid)||'')+') · '+n(o.qty)+'개</option>'; }).join('')+'</select>';
+      html+='</div>';
+      var o=(S.psSel.o>=0)?curB.orders[S.psSel.o]:null;
+      if(!o){ html+='<p class="hint">위에서 <b>발주서 일자</b>를 고르고, 이어서 <b>발주 항목</b>을 선택하면 등급을 입력할 수 있어요.</p>'; }
+      else {
+        var due=curB.date;
+        html+='<div style="background:var(--blue-l);border-radius:8px;padding:10px 12px">';
+        html+='<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-bottom:8px"><b style="font-size:15px">'+esc(colorName(o.pid,o.cid)||'')+'</b> <span style="color:var(--sub)">'+esc(prodName(o.pid)||'')+'</span> · 발주수량 <b>'+n(o.qty)+'</b>개 · 예정일 '+(due?esc(due):'-')+'</div>';
+        html+='<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">';
+        [['A','psgA'],['B+','psgBp'],['B','psgB'],['C','psgC']].forEach(function(k){ html+='<label style="font-size:12px">'+k[0]+'<br><input id="'+k[1]+'" type="number" min="0" placeholder="0" style="width:60px;text-align:right" oninput="prodStockGsum()"></label>'; });
+        html+='<div style="font-size:13px">검수합계 <b id="psgTot" style="font-size:16px">0</b>개</div>';
+        html+='<button class="btn pri" onclick="prodStockRegister()">✅ 검수 등록 · 재고반영 + md 전송</button>';
+        html+='</div><div class="hint" style="margin-top:6px">등록하면 위 <b>현재 재고</b>에 등급별로 더해지고, md로도 전송되어 승인 대기 상태가 됩니다.</div>';
+        html+='</div>';
+      }
+    }
+    /* 제품 추가 입고 */
+    html+='<hr style="margin:16px 0;border:none;border-top:1px solid var(--line)">';
+    html+='<div style="font-weight:800;margin:2px 0 6px;font-size:14px">＋ 제품 추가 입고 <span class="hint">(발주와 별개로 기존/추가 재고를 등급별 등록 → 재고반영 + md 전송)</span></div>';
+    html+='<div style="overflow-x:auto"><table class="t" style="width:100%;border-collapse:collapse"><tr><th>소분류 (색상)</th><th>입고예정일</th><th class="r">A</th><th class="r">B+</th><th class="r">B</th><th class="r">C</th><th></th></tr>'
       +'<tr><td><select id="paProd" onchange="prodStockPaSync()" style="max-width:120px">'+(S.products||[]).map(function(p){return '<option value="'+p.id+'">'+esc(p.name)+'</option>';}).join('')+'</select> <select id="paColor" style="max-width:120px"></select></td>'
-      +'<td class="r" style="color:var(--sub)">추가</td>'
       +'<td><input id="paDate" type="date" value="'+(window.today||'')+'" style="width:130px"></td>'
       +'<td class="r"><input id="paA" type="number" min="0" placeholder="0" style="width:48px;text-align:right"></td>'
       +'<td class="r"><input id="paBp" type="number" min="0" placeholder="0" style="width:48px;text-align:right"></td>'
       +'<td class="r"><input id="paB" type="number" min="0" placeholder="0" style="width:48px;text-align:right"></td>'
       +'<td class="r"><input id="paC" type="number" min="0" placeholder="0" style="width:48px;text-align:right"></td>'
-      +'<td class="r"><button class="btn pri sm" onclick="prodStockAddIn()">＋ 전송</button></td></tr></table></div>';
-    /* 전송 완료 = md 승인 대기 (승인되면 자동으로 사라짐) */
+      +'<td class="r"><button class="btn pri sm" onclick="prodStockAddIn()">＋ 등록</button></td></tr></table></div>';
+    /* 전송 완료 · md 승인 대기 */
     var waiting=(PS||[]).filter(function(e){ return e&&e.status==='검수완료'&&e.grades; });
     html+='<hr style="margin:16px 0;border:none;border-top:1px solid var(--line)">';
     html+='<div style="font-weight:800;margin:2px 0 6px;font-size:14px">📤 전송 완료 · md 승인 대기 '+(waiting.length?'<span class="badge" style="background:var(--amber-l);color:var(--amber)">'+waiting.length+'</span>':'')+' <span class="hint">md에서 승인하면 목록에서 사라집니다</span></div>';
@@ -2441,22 +2480,29 @@ initFB();
     try{ paSync(); }catch(e){}
   }
   function paSync(){ var sel=document.getElementById('paProd'), cc=document.getElementById('paColor'); if(!sel||!cc)return; var p=pOf(sel.value); cc.innerHTML=p?((p.colors||[]).map(function(c){return '<option value="'+c.id+'">'+esc(c.name)+'</option>';}).join('')):''; }
-  function addIn(){ var pid=(document.getElementById('paProd')||{}).value, cid=(document.getElementById('paColor')||{}).value;
+  function selBatch(){ var s=document.getElementById('psBatch'); if(!s)return; S.psSel=S.psSel||{}; S.psSel.b=s.value; S.psSel.o=-1; if(typeof save==='function')save(); render(); }
+  function selOrder(){ var s=document.getElementById('psOrder'); if(!s)return; S.psSel=S.psSel||{}; S.psSel.o=parseInt(s.value,10); if(typeof save==='function')save(); render(); }
+  function psgLive(){ var t=0; ['psgA','psgBp','psgB','psgC'].forEach(function(id){var el=document.getElementById(id); t+=el?n(el.value):0;}); var el=document.getElementById('psgTot'); if(el)el.textContent=t; }
+  function register(){
+    var bs=batches(); var curB=bs.filter(function(b){return b.key===(S.psSel&&S.psSel.b);})[0]; if(!curB){alert('발주서 일자를 선택하세요');return;}
+    var o=(S.psSel.o>=0)?curB.orders[S.psSel.o]:null; if(!o){alert('발주 항목을 선택하세요');return;}
+    var g={A:n((document.getElementById('psgA')||{}).value),Bp:n((document.getElementById('psgBp')||{}).value),B:n((document.getElementById('psgB')||{}).value),C:n((document.getElementById('psgC')||{}).value)};
+    var t=gsum(g); if(t<=0){alert('등급 수량을 입력하세요');return;}
+    if(!confirm('검수 '+t+'개를 재고에 반영하고 md로 전송할까요?'))return;
+    addStock(o.pid,o.cid,g);
+    S.psSel.o=-1; if(typeof save==='function')save();
+    pushMd(prodName(o.pid),colorName(o.pid,o.cid),g,t,curB.date,null,'검수 등록 완료 · 재고 반영 + md 전송(승인 대기)');
+  }
+  function addIn(){
+    var pid=(document.getElementById('paProd')||{}).value, cid=(document.getElementById('paColor')||{}).value;
     var p=pOf(pid); if(!p){ alert('제품을 선택하세요'); return; }
     var g={A:n((document.getElementById('paA')||{}).value),Bp:n((document.getElementById('paBp')||{}).value),B:n((document.getElementById('paB')||{}).value),C:n((document.getElementById('paC')||{}).value)};
     var t=gsum(g); if(t<=0){ alert('등급 수량을 입력하세요'); return; }
-    if(!confirm('추가 입고 '+t+'개를 md로 전송할까요? (승인하면 바디 재고에 반영)')) return;
-    var nm=p.name, col=colorName(pid,cid);
+    if(!confirm('추가 입고 '+t+'개를 재고에 반영하고 md로 전송할까요?')) return;
     var dd=(document.getElementById('paDate')||{}).value||(window.today||'');
-    var c=client(); if(!c){ alert('md 연결 대기 중입니다.'); return; }
-    c.from('production_schedule').select('data').eq('id','latest').maybeSingle().then(function(res){
-      var arr=(res&&res.data&&res.data.data)||[]; if(!Array.isArray(arr))arr=[];
-      var ex=arr.find(function(e){return e&&e.status!=='승인완료'&&(e.name||'')===nm&&(e.color||'')===col;});
-      var ent={id:'PS'+Date.now()+Math.floor(Math.random()*1000),name:nm,color:col,qty:t,date:dd,grades:g,gradeTotal:t,status:'검수완료',at:(window.today||''),manualIn:true};
-      if(ex)Object.assign(ex,ent); else arr.push(ent);
-      if(arr.length>200)arr=arr.slice(arr.length-200);
-      c.from('production_schedule').upsert({id:'latest',updated_at:new Date().toISOString(),data:arr}).then(function(r2){ if(r2&&r2.error){alert('전송 실패: '+(r2.error.message||''));return;} PS=arr; render(); alert('추가 입고 전송 완료 · md 승인 대기'); },function(er){alert('전송 실패: '+(er.message||er));});
-    },function(er){ alert('md 읽기 실패: '+(er.message||er)); });
+    addStock(pid,cid,g);
+    if(typeof save==='function')save();
+    pushMd(p.name,colorName(pid,cid),g,t,dd,{manualIn:true},'추가 입고 완료 · 재고 반영 + md 전송(승인 대기)');
   }
   function delSent(id){
     if(!confirm('이 전송 항목을 삭제할까요? (md 승인 대기 목록에서 제거)'))return;
@@ -2467,46 +2513,10 @@ initFB();
       c.from('production_schedule').upsert({id:'latest',updated_at:new Date().toISOString(),data:arr}).then(function(r2){ if(r2&&r2.error){alert('삭제 실패: '+(r2.error.message||''));return;} PS=arr; render(); },function(er){alert('삭제 실패: '+(er.message||er));});
     },function(er){ alert('md 읽기 실패: '+(er.message||er)); });
   }
-  function calc(key){ var s=0; GK.forEach(function(k){var el=document.querySelector('[data-psg="'+key+'|'+k[0]+'"]'); s+=el?n(el.value):0;});
-    S.prodGrades=S.prodGrades||{}; var g=S.prodGrades[key]=S.prodGrades[key]||{}; GK.forEach(function(k){var el=document.querySelector('[data-psg="'+key+'|'+k[0]+'"]'); g[k[0]]=el?Math.max(0,n(el.value)):0;});
-    var t=document.getElementById('pstot_'+key.replace(/[^a-zA-Z0-9]/g,'_')); if(t)t.innerHTML='<b>'+s+'</b>'; }
-  function sendAll(){
-    S.prodPicked=S.prodPicked||[];
-    var list=items().filter(function(it){return S.prodPicked.indexOf(it.key)>=0;}); var toSend=[];
-    list.forEach(function(it){ var g=S.prodGrades[it.key]||{}; var t=gsum(g); if(t>0)toSend.push({it:it,g:g,t:t}); });
-    if(!toSend.length){ alert('등급 수량을 입력하세요.'); return; }
-    if(!confirm(toSend.length+'건을 검수 완료로 md에 전송할까요?')) return;
-    var c=client(); if(!c){ alert('md 연결 대기 중입니다. 잠시 후 다시 시도해 주세요.'); return; }
-    c.from('production_schedule').select('data').eq('id','latest').maybeSingle().then(function(res){
-      var arr=(res&&res.data&&res.data.data)||[]; if(!Array.isArray(arr))arr=[];
-      S.prodSentQty=S.prodSentQty||{}; S.prodSentLog=S.prodSentLog||[];
-      toSend.forEach(function(s){ var nm=prodName(s.it.pid), col=colorName(s.it.pid,s.it.cid);
-        var grades={A:n(s.g.A),Bp:n(s.g.Bp),B:n(s.g.B),C:n(s.g.C)};
-        var ex=arr.find(function(e){return e&&e.status!=='승인완료'&&(e.name||'')===nm&&(e.color||'')===col;});
-        var ent={id:'PS'+Date.now()+Math.floor(Math.random()*1000),name:nm,color:col,qty:s.t,date:s.it.due||(window.today||''),grades:grades,gradeTotal:s.t,status:'검수완료',at:(window.today||'')};
-        if(ex)Object.assign(ex,ent); else arr.push(ent);
-        S.prodSentQty[s.it.key]=n(S.prodSentQty[s.it.key])+s.t;
-        delete S.prodGrades[s.it.key];
-        S.prodPicked=(S.prodPicked||[]).filter(function(k){return k!==s.it.key;});
-      });
-      if(arr.length>200)arr=arr.slice(arr.length-200);
-      c.from('production_schedule').upsert({id:'latest',updated_at:new Date().toISOString(),data:arr}).then(function(r2){
-        if(r2&&r2.error){ alert('전송 실패: '+(r2.error.message||'권한 확인')); return; }
-        PS=arr; if(typeof save==='function')save(); render();
-        alert(toSend.length+'건을 md로 전송했습니다.\nmd → 생산·소싱 현황에서 승인하면 바디 재고(등급)에 반영됩니다.');
-      },function(er){ alert('전송 실패: '+(er.message||er)); });
-    },function(er){ alert('md 읽기 실패: '+(er.message||er)); });
-  }
-  function undoSent(){
-    if(!confirm('가장 최근 전송을 취소하고 다시 검수할까요? (md에 이미 승인됐다면 md에서 별도 조정 필요)'))return;
-    var l=(S.prodSentLog||[]).shift(); if(!l)return; if(typeof save==='function')save(); render();
-  }
   function toggle(cat){ CLOSED[cat]=!CLOSED[cat]; render(); }
-  function pick(){ var sel=document.getElementById('pickSel'); if(!sel||!sel.value){return;} S.prodPicked=S.prodPicked||[]; if(S.prodPicked.indexOf(sel.value)<0)S.prodPicked.push(sel.value); if(typeof save==='function')save(); render(); }
-  function unpick(key){ S.prodPicked=(S.prodPicked||[]).filter(function(k){return k!==key;}); if(typeof save==='function')save(); render(); }
   function load(){ render(); var c=client(); if(!c)return;
     c.from('production_schedule').select('data').eq('id','latest').maybeSingle().then(function(res){ var a=res&&res.data&&res.data.data; PS=Array.isArray(a)?a:[]; render(); },function(){}); }
-  window.prodStockLoad=load; window.prodStockG=calc; window.prodStockSendAll=sendAll; window.prodStockToggle=toggle; window.prodStockUndoSent=undoSent; window.prodStockAddIn=addIn; window.prodStockPaSync=paSync; window.prodStockDelSent=delSent; window.prodStockPick=pick; window.prodStockUnpick=unpick;
+  window.prodStockLoad=load; window.prodStockToggle=toggle; window.prodStockAddIn=addIn; window.prodStockPaSync=paSync; window.prodStockDelSent=delSent; window.prodStockBatch=selBatch; window.prodStockOrder=selOrder; window.prodStockGsum=psgLive; window.prodStockRegister=register;
   document.addEventListener('click',function(e){
     var b=e.target.closest?e.target.closest('.tabs button[data-tab=pstock]'):null;
     if(b)setTimeout(load,40);
