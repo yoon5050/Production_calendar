@@ -385,7 +385,7 @@ window.FIREBASE_CONFIG={
   <section class="tab" id="tab-pstock">
     <div class="card">
       <h2 class="sec">제품 재고 — 등급별 입고 검수</h2>
-      <p class="hint"><b>발주수량</b>은 <b>생산 발주 확정</b>에서 자동으로 넘어옵니다(로컬 이력 기준). 위 확정 내역을 보고 아래에서 등급(A/B+/B/C)별 검수 수량을 입력해 <b>전송</b>하면 md 승인 → 바디 재고(등급)에 반영됩니다. <button class="btn sm" id="pstockReload" style="margin-left:6px">↻ 새로고침</button> <button class="btn sm ghost" id="pstockClear">🗑 검수·전송로그 비우기</button></p>
+      <p class="hint"><b>발주수량</b>은 <b>생산 발주 확정</b>에서 자동으로 넘어옵니다(로컬 이력 기준). 아래에서 등급(A/B+/B/C)별 검수 수량을 입력해 <b>등록</b>하면 <b>공유 재고 원장</b>의 정상/불량 창고에 바로 반영되고, md도 같은 원장을 실시간으로 봅니다(승인 단계 없음). md에서 주문이 배송완료되면 정상 재고가 자동 차감됩니다. <button class="btn sm" id="pstockReload" style="margin-left:6px">↻ 새로고침</button> <button class="btn sm ghost" id="pstockClear">🗑 로컬 검수로그 비우기</button></p>
       <div id="pstockBody"></div>
     </div>
   </section>
@@ -2048,7 +2048,7 @@ initFB();
     c.from('lowlit_workspace').select('data').eq('id','lowlit').maybeSingle().then(function(res){
       mdBusy=false;
       if(res.error){ mdErr='읽기 실패: '+(res.error.message||res.error.code||'권한(RLS) 확인 필요'); mdDB=null; }
-      else { mdDB=(res.data&&res.data.data)||null; if(!mdDB) mdErr='md 데이터 없음 (권한 또는 빈 워크스페이스)'; S.mdlink.lastAt=Date.now(); }
+      else { mdDB=(res.data&&res.data.data)||null; if(!mdDB) mdErr='md 데이터 없음 (권한 또는 빈 워크스페이스)'; S.mdlink.lastAt=Date.now(); try{window.__mdDB=mdDB;}catch(e){} }
       renderAll();
     }).catch(function(e){ mdBusy=false; mdErr='읽기 실패: '+(e.message||e); mdDB=null; renderAll(); });
   }
@@ -2358,6 +2358,35 @@ initFB();
   function catOf(pid){ var p=pOf(pid); return (p&&p.cat1)||'미분류'; }
   function colorName(pid,cid){ var p=pOf(pid),c=p&&cOf(p,cid); return c?c.name:''; }
   function prodName(pid){ var p=pOf(pid); return p?p.name:''; }
+  function mdProducts(){ try{ return (window.__mdDB&&window.__mdDB.products)||[]; }catch(e){ return []; } }
+  function nrm(s){ return String(s==null?'':s).replace(/[\s·\-_()]/g,'').toLowerCase(); }
+  function resolveSku(name,color){
+    var ps=mdProducts().filter(function(p){return p.kind!=='부자재';}); var nn=nrm(name), nc=nrm(color);
+    var hit=ps.find(function(p){ var pc=nrm(p.opt1||(p.segs&&(p.segs['색상']||p.segs['컬러']))||''); return nrm(p.name)===nn && (nc?pc===nc:true); });
+    if(!hit&&nc)hit=ps.find(function(p){ var pc=nrm(p.opt1||''); return pc===nc && nrm(p.name).indexOf(nn)>=0; });
+    return hit?hit.sku:('PRD:'+nn+(nc?'|'+nc:''));
+  }
+  function gradeWh(gk){ return gk==='C'?'불량':'정상'; }
+  function ledgerMove(sku,grade,wh,qty,type,ref){ var c=client(); if(!c||!sku||!qty)return;
+    c.from('stock_movements').insert({sku:sku,grade:grade||null,warehouse:wh,qty:qty,type:type,ref:ref||null,operator:null,source_app:'production'}).then(function(){},function(){}); }
+  function loadLedger(){
+    var box=document.getElementById('psLedgerBox'); if(!box)return;
+    var c=client(); if(!c){ box.innerHTML='<p class="hint">클라우드 연결 대기 중…</p>'; return; }
+    c.from('stock_balance').select('sku,grade,warehouse,qty').then(function(res){
+      if(res.error){ box.innerHTML='<p class="hint">원장 조회 실패: '+esc(res.error.message||'권한/테이블 확인')+' — Supabase에 stock_movements 테이블(SQL)을 먼저 실행해 주세요.</p>'; return; }
+      var rows=res.data||[]; var by={},order=[];
+      rows.forEach(function(r){ var k=r.sku||'(미지정)'; if(!by[k]){by[k]={입고:0,정상:0,불량:0,출고대기:0};order.push(k);} var q=+r.qty||0; if(by[k][r.warehouse]!=null)by[k][r.warehouse]+=q; });
+      order.sort();
+      if(!order.length){ box.innerHTML='<p class="hint">공유 원장에 재고가 없습니다. 아래에서 등급 검수를 등록하면 정상/불량 창고에 쌓이고, md 출고 시 자동 차감됩니다.</p>'; return; }
+      var nameOf=function(sku){ var p=mdProducts().find(function(x){return x.sku===sku;}); return p?(p.name+(p.opt1?' · '+p.opt1:'')):''; };
+      var tot={입고:0,정상:0,불량:0,출고대기:0};
+      var hh='<div style="overflow-x:auto"><table class="t" style="width:100%;border-collapse:collapse"><tr><th>SKU</th><th>제품·색상</th><th class="r">입고</th><th class="r">정상</th><th class="r">불량</th><th class="r">출고대기</th><th class="r">합계</th></tr>';
+      order.forEach(function(k){ var b=by[k]; var sum=b.입고+b.정상+b.불량+b.출고대기; ['입고','정상','불량','출고대기'].forEach(function(w){tot[w]+=b[w];});
+        hh+='<tr><td class="mono" style="font-size:11px">'+esc(k)+'</td><td style="font-size:12px">'+esc(nameOf(k))+'</td><td class="r">'+n(b.입고)+'</td><td class="r">'+n(b.정상)+'</td><td class="r" style="color:#dc2626">'+n(b.불량)+'</td><td class="r"><b>'+n(b.출고대기)+'</b></td><td class="r"><b>'+n(sum)+'</b></td></tr>'; });
+      hh+='<tr><td colspan="2" style="text-align:right;font-weight:800">합계</td><td class="r" style="font-weight:800">'+tot.입고+'</td><td class="r" style="font-weight:800">'+tot.정상+'</td><td class="r" style="font-weight:800">'+tot.불량+'</td><td class="r" style="font-weight:800">'+tot.출고대기+'</td><td class="r" style="font-weight:800">'+(tot.입고+tot.정상+tot.불량+tot.출고대기)+'</td></tr></table></div>';
+      box.innerHTML=hh;
+    },function(er){ box.innerHTML='<p class="hint">원장 조회 실패: '+esc(er.message||er)+'</p>'; });
+  }
 
   /* ===== 현재 재고(로컬) : pid|cid → {A,Bp,B,C} ===== */
   function stockList(){
@@ -2407,27 +2436,10 @@ initFB();
   function render(){
     var box=document.getElementById('pstockBody'); if(!box)return;
     var html='';
-    /* 상단: 현재 재고 (제품·색상별 등급 수량) */
-    var slist=stockList();
-    html+='<div style="font-weight:800;margin:2px 0 6px;font-size:14px">📦 현재 재고 <span class="hint">(제품·색상별 등급 수량 · 검수/추가입고로 누적)</span><button class="btn sm" onclick="prodStockLoad()" style="float:right">↻ 새로고침</button></div>';
-    if(!slist.length){ html+='<p class="hint">아직 재고가 없습니다. 아래에서 발주 확정 내역을 검수하거나 제품을 추가 입고하면 여기에 등급별로 쌓입니다.</p>'; }
-    else {
-      var tot={A:0,Bp:0,B:0,C:0};
-      html+='<div style="overflow-x:auto"><table class="t" style="width:100%;border-collapse:collapse"><tr><th>소분류 (색상)</th><th>제품</th><th class="r">A</th><th class="r">B+</th><th class="r">B</th><th class="r">C</th><th class="r">합계</th></tr>';
-      grp(slist).forEach(function(gg){
-        var gt={A:0,Bp:0,B:0,C:0}; gg.items.forEach(function(it){gt.A+=it.g.A;gt.Bp+=it.g.Bp;gt.B+=it.g.B;gt.C+=it.g.C;});
-        var gtsum=gt.A+gt.Bp+gt.B+gt.C; tot.A+=gt.A;tot.Bp+=gt.Bp;tot.B+=gt.B;tot.C+=gt.C;
-        var ck=String(gg.cat).replace(/['"\\]/g,''); var closed=!!CLOSED[gg.cat];
-        html+='<tr style="cursor:pointer" onclick="prodStockToggle(\''+ck+'\')"><td colspan="2" style="background:var(--blue-l);font-weight:800;color:var(--blue);padding:6px 8px">'+(closed?'▶':'▼')+' '+esc(gg.cat)+'</td>'
-          +'<td class="r" style="background:var(--blue-l);font-weight:700">'+gt.A+'</td><td class="r" style="background:var(--blue-l);font-weight:700">'+gt.Bp+'</td><td class="r" style="background:var(--blue-l);font-weight:700">'+gt.B+'</td><td class="r" style="background:var(--blue-l);font-weight:700">'+gt.C+'</td><td class="r" style="background:var(--blue-l);font-weight:800">'+gtsum+'</td></tr>';
-        if(!closed) gg.items.forEach(function(it){
-          html+='<tr><td><b>'+esc(colorName(it.pid,it.cid)||'')+'</b></td><td style="color:var(--sub);font-size:12px">'+esc(prodName(it.pid)||'')+'</td>'
-            +'<td class="r">'+it.g.A+'</td><td class="r">'+it.g.Bp+'</td><td class="r">'+it.g.B+'</td><td class="r">'+it.g.C+'</td><td class="r"><b>'+it.tot+'</b></td></tr>';
-        });
-      });
-      html+='<tr><td colspan="2" style="text-align:right;font-weight:800;padding:6px 8px">전체 합계</td><td class="r" style="font-weight:800">'+tot.A+'</td><td class="r" style="font-weight:800">'+tot.Bp+'</td><td class="r" style="font-weight:800">'+tot.B+'</td><td class="r" style="font-weight:800">'+tot.C+'</td><td class="r" style="font-weight:800">'+(tot.A+tot.Bp+tot.B+tot.C)+'</td></tr>';
-      html+='</table></div>';
-    }
+    /* 상단: 현재 재고 — 공유 재고 원장(창고 4분류) */
+    html+='<div style="font-weight:800;margin:2px 0 6px;font-size:14px">📦 현재 재고 · 창고 4분류 <span class="hint">(입고·정상·불량·출고대기 · md와 공유하는 원장 기준)</span><button class="btn sm" onclick="prodStockLoad()" style="float:right">↻ 새로고침</button></div>';
+    html+='<div id="psLedgerBox"><p class="hint">원장 불러오는 중…</p></div>';
+    html+='<div class="hint" style="margin-top:4px">md에서 주문이 배송완료되면 이 원장의 <b>정상</b> 재고가 자동으로 차감됩니다. (승인 단계 없음)</div>';
     /* 등급 검수 입력 : 발주일자 → 발주수량 종속 드롭다운 */
     html+='<hr style="margin:16px 0;border:none;border-top:1px solid var(--line)">';
     html+='<div style="font-weight:800;margin:2px 0 6px;font-size:14px">🔬 등급 검수 입력 <span class="hint">(발주서 일자 → 발주 항목 → 등급 검수 → 재고 반영 + md 전송)</span></div>';
@@ -2466,18 +2478,9 @@ initFB();
       +'<td class="r"><input id="paB" type="number" min="0" placeholder="0" style="width:48px;text-align:right"></td>'
       +'<td class="r"><input id="paC" type="number" min="0" placeholder="0" style="width:48px;text-align:right"></td>'
       +'<td class="r"><button class="btn pri sm" onclick="prodStockAddIn()">＋ 등록</button></td></tr></table></div>';
-    /* 전송 완료 · md 승인 대기 */
-    var waiting=(PS||[]).filter(function(e){ return e&&e.status==='검수완료'&&e.grades; });
-    html+='<hr style="margin:16px 0;border:none;border-top:1px solid var(--line)">';
-    html+='<div style="font-weight:800;margin:2px 0 6px;font-size:14px">📤 전송 완료 · md 승인 대기 '+(waiting.length?'<span class="badge" style="background:var(--amber-l);color:var(--amber)">'+waiting.length+'</span>':'')+' <span class="hint">md에서 승인하면 목록에서 사라집니다</span></div>';
-    if(!waiting.length){ html+='<p class="hint">승인 대기 중인 전송 내역이 없습니다.</p>'; }
-    else { html+='<div style="overflow-x:auto"><table class="t" style="width:100%;border-collapse:collapse"><tr><th>색상 (제품)</th><th>예정일</th><th class="r">A</th><th class="r">B+</th><th class="r">B</th><th class="r">C</th><th class="r">합계</th><th></th></tr>';
-      waiting.forEach(function(e){ var g=e.grades||{}; html+='<tr><td>'+esc(e.color||'')+' <span style="color:var(--sub);font-size:12px">('+esc(e.name||'')+')</span></td><td>'+(e.date?esc(e.date):'-')+'</td>'
-        +'<td class="r">'+n(g.A)+'</td><td class="r">'+n(g.Bp)+'</td><td class="r">'+n(g.B)+'</td><td class="r">'+n(g.C)+'</td><td class="r"><b>'+gsum(g)+'</b></td>'
-        +'<td class="r"><button class="btn sm danger" onclick="prodStockDelSent(\''+e.id+'\')">삭제</button></td></tr>'; });
-      html+='</table></div>'; }
     box.innerHTML=html;
     try{ paSync(); }catch(e){}
+    loadLedger();
   }
   function paSync(){ var sel=document.getElementById('paProd'), cc=document.getElementById('paColor'); if(!sel||!cc)return; var p=pOf(sel.value); cc.innerHTML=p?((p.colors||[]).map(function(c){return '<option value="'+c.id+'">'+esc(c.name)+'</option>';}).join('')):''; }
   function selBatch(){ var s=document.getElementById('psBatch'); if(!s)return; S.psSel=S.psSel||{}; S.psSel.b=s.value; S.psSel.o=-1; if(typeof save==='function')save(); render(); }
@@ -2488,21 +2491,27 @@ initFB();
     var o=(S.psSel.o>=0)?curB.orders[S.psSel.o]:null; if(!o){alert('발주 항목을 선택하세요');return;}
     var g={A:n((document.getElementById('psgA')||{}).value),Bp:n((document.getElementById('psgBp')||{}).value),B:n((document.getElementById('psgB')||{}).value),C:n((document.getElementById('psgC')||{}).value)};
     var t=gsum(g); if(t<=0){alert('등급 수량을 입력하세요');return;}
-    if(!confirm('검수 '+t+'개를 재고에 반영하고 md로 전송할까요?'))return;
+    if(!confirm('검수 '+t+'개를 공유 재고 원장에 반영할까요? (md와 자동 공유 · 승인 없음)'))return;
     addStock(o.pid,o.cid,g);
     S.psSel.o=-1; if(typeof save==='function')save();
-    pushMd(prodName(o.pid),colorName(o.pid,o.cid),g,t,curB.date,null,'검수 등록 완료 · 재고 반영 + md 전송(승인 대기)');
+    var sku=resolveSku(prodName(o.pid),colorName(o.pid,o.cid));
+    [['A',g.A],['B+',g.Bp],['B',g.B],['C',g.C]].forEach(function(x){ if(n(x[1])>0)ledgerMove(sku,x[0],gradeWh(x[0]),n(x[1]),'입고',(curB.date||'')+' 검수'); });
+    render();
+    alert('검수 '+t+'개 등록 · 공유 재고 원장에 반영되었습니다.');
   }
   function addIn(){
     var pid=(document.getElementById('paProd')||{}).value, cid=(document.getElementById('paColor')||{}).value;
     var p=pOf(pid); if(!p){ alert('제품을 선택하세요'); return; }
     var g={A:n((document.getElementById('paA')||{}).value),Bp:n((document.getElementById('paBp')||{}).value),B:n((document.getElementById('paB')||{}).value),C:n((document.getElementById('paC')||{}).value)};
     var t=gsum(g); if(t<=0){ alert('등급 수량을 입력하세요'); return; }
-    if(!confirm('추가 입고 '+t+'개를 재고에 반영하고 md로 전송할까요?')) return;
+    if(!confirm('추가 입고 '+t+'개를 공유 재고 원장에 반영할까요? (md와 자동 공유 · 승인 없음)')) return;
     var dd=(document.getElementById('paDate')||{}).value||(window.today||'');
     addStock(pid,cid,g);
     if(typeof save==='function')save();
-    pushMd(p.name,colorName(pid,cid),g,t,dd,{manualIn:true},'추가 입고 완료 · 재고 반영 + md 전송(승인 대기)');
+    var sku=resolveSku(p.name,colorName(pid,cid));
+    [['A',g.A],['B+',g.Bp],['B',g.B],['C',g.C]].forEach(function(x){ if(n(x[1])>0)ledgerMove(sku,x[0],gradeWh(x[0]),n(x[1]),'입고',dd+' 추가입고'); });
+    render();
+    alert('추가 입고 '+t+'개 등록 · 공유 재고 원장에 반영되었습니다.');
   }
   function delSent(id){
     if(!confirm('이 전송 항목을 삭제할까요? (md 승인 대기 목록에서 제거)'))return;
@@ -2514,8 +2523,7 @@ initFB();
     },function(er){ alert('md 읽기 실패: '+(er.message||er)); });
   }
   function toggle(cat){ CLOSED[cat]=!CLOSED[cat]; render(); }
-  function load(){ render(); var c=client(); if(!c)return;
-    c.from('production_schedule').select('data').eq('id','latest').maybeSingle().then(function(res){ var a=res&&res.data&&res.data.data; PS=Array.isArray(a)?a:[]; render(); },function(){}); }
+  function load(){ render(); }
   window.prodStockLoad=load; window.prodStockToggle=toggle; window.prodStockAddIn=addIn; window.prodStockPaSync=paSync; window.prodStockDelSent=delSent; window.prodStockBatch=selBatch; window.prodStockOrder=selOrder; window.prodStockGsum=psgLive; window.prodStockRegister=register;
   document.addEventListener('click',function(e){
     var b=e.target.closest?e.target.closest('.tabs button[data-tab=pstock]'):null;
