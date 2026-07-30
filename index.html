@@ -2048,12 +2048,15 @@ initFB();
     c.from('lowlit_workspace').select('data').eq('id','lowlit').maybeSingle().then(function(res){
       mdBusy=false;
       if(res.error){ mdErr='읽기 실패: '+(res.error.message||res.error.code||'권한(RLS) 확인 필요'); mdDB=null; }
-      else { mdDB=(res.data&&res.data.data)||null; if(!mdDB) mdErr='md 데이터 없음 (권한 또는 빈 워크스페이스)'; S.mdlink.lastAt=Date.now(); try{window.__mdDB=mdDB;}catch(e){} }
+      else { mdDB=(res.data&&res.data.data)||null; if(!mdDB) mdErr='md 데이터 없음 (권한 또는 빈 워크스페이스)'; S.mdlink.lastAt=Date.now(); try{window.__mdDB=mdDB;}catch(e){} try{fetchBodyBal(c);}catch(e){} }
       renderAll();
     }).catch(function(e){ mdBusy=false; mdErr='읽기 실패: '+(e.message||e); mdDB=null; renderAll(); });
   }
 
   function mdStockOf(pid){ return (mdDB.stock||[]).reduce(function(a,s){ return s.productId!==pid?a:a+(s.type==='출고'?-Math.abs(s.qty):(s.type==='조정'?(+s.qty||0):Math.abs(s.qty))); },0); }
+  var bodyBal={};
+  function fetchBodyBal(c){ try{ c.from('stock_balance').select('sku,grade,warehouse,qty').then(function(res){ if(res&&!res.error){ var m={}; (res.data||[]).forEach(function(r){ var k=r.sku||''; if(!m[k])m[k]={}; var w=r.warehouse; m[k][w]=(m[k][w]||0)+(+r.qty||0); }); bodyBal=m; renderAll(); } },function(){}); }catch(e){} }
+  function bodyStockOf(p){ if(!p||!p.sku)return 0; var bs=/^G/.test(p.sku)?('B'+p.sku.slice(1)):p.sku; var m=bodyBal[bs]; if(!m)return 0; return (+m['창고A']||0)+(+m['창고B']||0)+(+m['출고준비']||0); }
   function norm(s){ return String(s==null?'':s).replace(/[\s·\-_()]/g,'').toLowerCase(); }
   function mdColor(p){ return (p.opt1||(p.segs&&(p.segs['색상']||p.segs['컬러']||p.segs['옵션1']))||'').trim(); }
   function nameOfMd(it){ return it.name+(it.color?' · '+it.color:'')+(it.size?' · '+it.size:''); }
@@ -2063,7 +2066,7 @@ initFB();
     (mdDB.products||[]).forEach(function(p){
       if(p.kind==='부자재')return;               /* 완제품만 (부자재는 md 내부 처리) */
       var safe=+p.safe||0; if(safe<=0)return;
-      var st=mdStockOf(p.id);
+      var st=bodyStockOf(p);
       if(st<safe) out.push({mdId:p.id,sku:p.sku,name:p.name,color:mdColor(p),size:(p.opt2||'').trim(),stock:st,safe:safe,need:safe-st});
     });
     return out;
@@ -2124,7 +2127,7 @@ initFB();
       +(addable?'<button class="btn sm pri" id="mdAddAll">전체 생산 발주에 추가</button>':'')
       +'</span></div>'
       +((mdErr&&!mdDB)?'<p class="hint" style="color:var(--red)">md 재고를 읽지 못했습니다. Supabase 읽기 권한(RLS)이 필요할 수 있어요 — <b>설정·백업</b> 탭의 “md 연동” 안내를 확인하세요.</p>':'')
-      +(sh.length?('<table class="t" style="margin-top:8px"><tr><th>md 부족 품목</th><th class="r">현재고 / 안전</th><th class="r">부족</th><th>production 매핑</th><th class="r">권장수량</th><th></th></tr>'+rows+'</table>'
+      +(sh.length?('<table class="t" style="margin-top:8px"><tr><th>md 부족 품목</th><th class="r">바디재고 / 안전</th><th class="r">부족</th><th>production 매핑</th><th class="r">권장수량</th><th></th></tr>'+rows+'</table>'
         +'<p class="hint"><b>상시 보유량(안전재고)</b>까지 채우는 수량이 색상별로 계산됩니다. ‘추가’하면 생산 발주에 기입되고, 이후 자재·일정은 기존대로 자동 계산돼요. 미매핑 품목은 설정 탭에서 연결하세요.</p>')
         :(mdDB?'<p class="hint" style="margin-top:6px">현재 안전재고 미달 완제품이 없습니다.</p>':''))
       +'</div>';
