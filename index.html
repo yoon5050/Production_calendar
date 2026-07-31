@@ -260,6 +260,7 @@ window.FIREBASE_CONFIG={
         <div class="ln">
           <select id="oProd"></select>
           <select id="oColor"></select>
+          <select id="oSize" title="사이즈(선택)"><option value="">사이즈 없음</option><option>소형</option><option>중형</option><option>대형</option><option>단일</option></select>
           <input type="number" id="oQty" placeholder="목표 수량" min="1">
           <label class="fl" style="flex-direction:row;align-items:center;gap:4px">희망 납품일<input type="date" id="oDue"></label>
           <input type="text" id="oNote" placeholder="메모 (선택)" style="flex:1;min-width:120px">
@@ -1022,8 +1023,8 @@ function renderOrders(){
     const eta=o.done?'완료 처리됨':!r?'-':r.eta&&r.eta!=='done'?`예상 완료 <b>${kdate(r.eta)}</b>`:(p&&!p.cap?'⚠️ 하루 생산량 미설정':'-');
     return `<div class="order ${o.done?'done':''}">
       <div class="no">${i+1}</div>
-      <div class="info"><div class="nm">${esc(nameOf(o.pid,o.cid))} · ${o.qty}개</div>
-        <div class="meta">${(()=>{const c=colorOf(p,o.cid);return c&&(c.kgPer||c.powderKg)?`개당 플레이크 ${Math.round((c.kgPer||0)*1000)}g${c.powderKg?' + 파우더 '+Math.round(c.powderKg*1000)+'g':''} · `:''})()}${o.note?esc(o.note)+' · ':''}납품 희망 <input type="date" data-odue="${i}" value="${o.due||''}" style="padding:1px 4px;font-size:11px"></div></div>
+      <div class="info"><div class="nm">${esc(nameOf(o.pid,o.cid))}${o.sz?' · <b>'+esc(o.sz)+'</b>':''} · ${o.qty}개</div>
+        <div class="meta">사이즈 <select data-osz="${i}" style="padding:1px 4px;font-size:11px">${['','소형','중형','대형','단일'].map(s=>`<option value="${s}"${(o.sz||'')===s?' selected':''}>${s||'없음'}</option>`).join('')}</select> · ${(()=>{const c=colorOf(p,o.cid);return c&&(c.kgPer||c.powderKg)?`개당 플레이크 ${Math.round((c.kgPer||0)*1000)}g${c.powderKg?' + 파우더 '+Math.round(c.powderKg*1000)+'g':''} · `:''})()}${o.note?esc(o.note)+' · ':''}납품 희망 <input type="date" data-odue="${i}" value="${o.due||''}" style="padding:1px 4px;font-size:11px"></div></div>
       <div class="eta">${eta}</div>
       <div class="ctl">
         <button class="btn sm" data-a="up" data-i="${i}">▲</button>
@@ -1040,6 +1041,7 @@ function renderOrders(){
     render();
   });
   document.querySelectorAll('#orderList [data-odue]').forEach(i=>i.onchange=()=>{S.orders[+i.dataset.odue].due=i.value;render()});
+  document.querySelectorAll('#orderList [data-osz]').forEach(s=>s.onchange=()=>{S.orders[+s.dataset.osz].sz=s.value;render()});
   /* 잔여 기준 자재 소요 요약 (파우더 포함) */
   const poS=poData();
   const flNeed=kg1(poS.flakeRows.filter(r=>r.kind!=='powder').reduce((a,r)=>a+r.kg,0));
@@ -1756,7 +1758,7 @@ function ordersText(){
   t+='\n';
   S.orders.filter(o=>!o.done).forEach((o,i)=>{
     const r=fc.etas.get(o.id);
-    t+=`${i+1}. ${pcName(o.pid,o.cid)} ${o.qty}개`;
+    t+=`${i+1}. ${pcName(o.pid,o.cid)}${o.sz?' '+sizeKo(o.sz):''} ${o.qty}개`;
     if(o.due)t+=` · 납품 희망 ${kdate(o.due)}`;
     t+=r&&r.eta&&r.eta!=='done'?` → 예상 완료 ${kdate(r.eta)}\n`:'\n';
     if(o.note)t+=`   ※ ${o.note}\n`;
@@ -1774,7 +1776,7 @@ function prodReqSheetHTML(pend,opts){
   const recv=sup?esc(sup.name):esc(fa.name||'');
   const recvSub=sup?recvSubOf(sup):recvSubOf(fa);
   const rows=pend.map(o=>{const p=prodOf(o.pid),c=p?colorOf(p,o.cid):null;
-    return {name:esc(sizeKo(p?pPName(p):(o.name||'(삭제된 제품)'))),color:esc(sizeKo(c?cPName(c):'-')),spec:'-',unit:'개',qty:String(o.qty),due:o.due?kdate(o.due):'',note:esc(o.note||'')}});
+    return {name:esc(sizeKo(p?pPName(p):(o.name||'(삭제된 제품)'))),color:esc(sizeKo(c?cPName(c):'-')),spec:(o.sz?esc(sizeKo(o.sz)):'-'),unit:'개',qty:String(o.qty),due:o.due?kdate(o.due):'',note:esc(o.note||'')}});
   /* 제품별 1개 제작 시 투입량 — 제품·배합 데이터에서 자동 작성 */
   const seenM=new Set();const matRows=[];
   pend.forEach(o=>{const key=o.pid+'|'+o.cid;if(seenM.has(key))return;seenM.add(key);
@@ -1833,8 +1835,8 @@ $('#addOrder').onclick=()=>{
   const pid=$('#oProd').value,cid=$('#oColor').value,qty=+$('#oQty').value;
   if(!pid||!cid){alert('제품·색상을 먼저 등록해 주세요');return}
   if(!qty||qty<1){alert('목표 수량을 입력해 주세요');return}
-  S.orders.push({id:uid(),pid,cid,qty,due:$('#oDue').value||'',note:$('#oNote').value.trim(),done:false});
-  $('#oQty').value='';$('#oNote').value='';$('#oDue').value='';render();
+  S.orders.push({id:uid(),pid,cid,sz:($('#oSize')?$('#oSize').value:'')||'',qty,due:$('#oDue').value||'',note:$('#oNote').value.trim(),done:false});
+  $('#oQty').value='';$('#oNote').value='';$('#oDue').value='';if($('#oSize'))$('#oSize').value='';render();
 };
 $('#addFlake').onclick=()=>{const v=$('#fName').value.trim();if(!v)return;
   const st=Math.max(0,+$('#fStock').value||0);
@@ -2095,13 +2097,13 @@ initFB();
     if(!m){ alert('먼저 이 품목을 production 제품·색상에 매핑해 주세요 (설정·백업 탭의 “md 연동”).'); return; }
     var rec=recQty(it,m);
     if(rec<=0){ alert('이미 생산 발주에 충분히 있습니다.'); return; }
-    S.orders.push({id:uid(),pid:m.pid,cid:m.cid,qty:rec,due:'',note:'',done:false});
+    S.orders.push({id:uid(),pid:m.pid,cid:m.cid,sz:(it.size||''),qty:rec,due:'',note:'',done:false});
     save(); render(); renderAll();
   }
   function addAll(){
     var n=0;
     shortages().forEach(function(it){ var m=matchProd(it); if(!m)return; var rec=recQty(it,m); if(rec<=0)return;
-      S.orders.push({id:uid(),pid:m.pid,cid:m.cid,qty:rec,due:'',note:'',done:false}); n++; });
+      S.orders.push({id:uid(),pid:m.pid,cid:m.cid,sz:(it.size||''),qty:rec,due:'',note:'',done:false}); n++; });
     if(n){ save(); render(); }
     renderAll();
     alert(n?(n+'건을 생산 발주에 추가했어요. 내용 확인 후 확정하세요.'):'추가할 항목이 없습니다 (미매핑 또는 이미 발주됨).');
