@@ -2298,26 +2298,29 @@ initFB();
   }
   function renderList(){
     var box=document.getElementById('prodFbList'); if(!box)return;
-    var cnt={접수:0,처리중:0,완료:0}; FB.forEach(function(f){ cnt[f.status]=(cnt[f.status]||0)+1; });
+    var list=FB.filter(function(f){ return (f.email==='생산팀')||/^생산/.test(String(f.page||'')); });
+    var cnt={접수:0,처리중:0,완료:0}; list.forEach(function(f){ cnt[f.status]=(cnt[f.status]||0)+1; });
     var head='<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px;font-size:12px">'
-      +'<span class="pill" style="background:var(--blue-l);color:var(--blue);padding:3px 8px;border-radius:20px">전체 '+FB.length+'</span>'
+      +'<span class="pill" style="background:var(--blue-l);color:var(--blue);padding:3px 8px;border-radius:20px">생산팀 '+list.length+'</span>'
       +'<span style="background:var(--blue-l);color:var(--blue);padding:3px 8px;border-radius:20px">접수 '+(cnt['접수']||0)+'</span>'
       +'<span style="background:var(--amber-l);color:var(--amber);padding:3px 8px;border-radius:20px">처리중 '+(cnt['처리중']||0)+'</span>'
       +'<span style="background:var(--green-l);color:var(--green);padding:3px 8px;border-radius:20px">완료 '+(cnt['완료']||0)+'</span></div>';
-    if(!FB.length){ box.innerHTML=head+'<p class="hint">아직 접수된 피드백이 없습니다.</p>'; return; }
-    var rows=FB.map(function(f){
+    if(!list.length){ box.innerHTML=head+'<p class="hint">아직 생산팀 피드백이 없습니다.</p>'; return; }
+    var rows=list.map(function(f){
       var dt=String(f.created_at||'').slice(0,16).replace('T',' ');
       var sel='<select onchange="prodFbSetStatus('+(typeof f.id==='string'?("'"+f.id+"'"):f.id)+',this.value)" style="padding:3px 6px;font-size:12px;border:1px solid var(--line);border-radius:6px">'
         +['접수','처리중','완료'].map(function(o){return '<option'+(o===f.status?' selected':'')+'>'+o+'</option>';}).join('')+'</select>';
       return '<tr><td style="font-size:11px;color:var(--sub);white-space:nowrap">'+esc(dt)+'</td>'
-        +'<td style="font-size:11px">'+esc(f.email||'-')+'</td>'
         +'<td style="font-size:11px">'+esc(f.page||'-')+'</td>'
         +'<td><span class="pill" style="background:var(--line);padding:2px 7px;border-radius:12px;font-size:11px">'+esc(f.category||'')+'</span></td>'
-        +'<td style="white-space:normal;max-width:340px">'+esc(f.message)+'</td>'
+        +'<td style="white-space:normal;max-width:360px">'+esc(f.message)+'</td>'
         +'<td>'+sel+'</td></tr>';
     }).join('');
-    box.innerHTML=head+'<div style="overflow-x:auto"><table class="t" style="width:100%;border-collapse:collapse">'
-      +'<tr><th>일시</th><th>작성자</th><th>화면</th><th>분류</th><th>내용</th><th>상태</th></tr>'+rows+'</table></div>';
+    var TH='position:sticky;top:0;background:#f4f6f9;z-index:1;text-align:left;padding:7px 8px;font-size:11px';
+    box.innerHTML=head+'<div style="max-height:300px;overflow:auto;border:1px solid var(--line);border-radius:8px">'
+      +'<table class="t" style="width:100%;border-collapse:collapse">'
+      +'<thead><tr><th style="'+TH+'">일시</th><th style="'+TH+'">화면</th><th style="'+TH+'">분류</th><th style="'+TH+'">내용</th><th style="'+TH+'">상태</th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+      +(list.length>5?'<p class="hint" style="margin-top:6px">스크롤하면 나머지 '+(list.length-5)+'건을 볼 수 있어요.</p>':'');
   }
   function setStatus(id,st){
     var c=client(); if(!c)return;
