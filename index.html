@@ -653,7 +653,8 @@ const colorOf=(p,cid)=>p&&p.colors.find(c=>c.id===cid);
 const flakeOf=id=>S.flakes.find(f=>f.id===id);
 const nameOf=(pid,cid)=>{const p=prodOf(pid);if(!p)return'(삭제된 제품)';const c=colorOf(p,cid);return p.name+(c?' - '+c.name:'')};
 const colorFirst=(pid,cid)=>{const p=prodOf(pid);if(!p)return'(삭제된 제품)';const c=colorOf(p,cid);return (c?c.name:'?')+(p?' ('+p.name+')':'')};
-const _palias=nm=>{if(!nm)return null;if(nm.indexOf('캐피')>=0)return '의자('+nm+')';if(nm.indexOf('에쿠스')>=0)return '말('+nm+')';if(nm.indexOf('드롭')>=0)return '트리('+nm+')';return null;};const pPName=p=>p?(p.printName||_palias(p.name)||p.name):'';const cPName=c=>c?(c.printName||c.name):'';const pcName=(pid,cid)=>{const p=prodOf(pid);if(!p)return'(삭제된 제품)';const c=colorOf(p,cid);return pPName(p)+(c?' - '+cPName(c):'')};
+const _palias=nm=>{if(!nm)return null;if(nm.indexOf('캐피')>=0)return '의자('+nm+')';if(nm.indexOf('에쿠스')>=0)return '말('+nm+')';if(nm.indexOf('드롭')>=0)return '트리('+nm+')';return null;};const pPName=p=>p?(p.printName||_palias(p.name)||p.name):'';const cPName=c=>c?(c.printName||c.name):'';const sizeKo=s=>String(s==null?'':s).replace(/(^|[\s·\/-])S($|[\s·\/-])/g,'$1소형$2').replace(/(^|[\s·\/-])L($|[\s·\/-])/g,'$1대형$2').replace(/(^|[\s·\/-])M($|[\s·\/-])/g,'$1중형$2').replace(/(^|[\s·\/-])F($|[\s·\/-])/g,'$1단일$2');
+const pcName=(pid,cid)=>{const p=prodOf(pid);if(!p)return'(삭제된 제품)';const c=colorOf(p,cid);return sizeKo(pPName(p)+(c?' - '+cPName(c):''))};
 const isOff=ds=>{
   if(S.holidays.includes(ds))return true;
   if(S.workdays.includes(ds))return false; /* 주말이지만 개별적으로 휴무 해제한 날 */
@@ -1773,7 +1774,7 @@ function prodReqSheetHTML(pend,opts){
   const recv=sup?esc(sup.name):esc(fa.name||'');
   const recvSub=sup?recvSubOf(sup):recvSubOf(fa);
   const rows=pend.map(o=>{const p=prodOf(o.pid),c=p?colorOf(p,o.cid):null;
-    return {name:esc(p?pPName(p):(o.name||'(삭제된 제품)')),color:esc(c?cPName(c):'-'),spec:'-',unit:'개',qty:String(o.qty),due:o.due?kdate(o.due):'',note:esc(o.note||'')}});
+    return {name:esc(sizeKo(p?pPName(p):(o.name||'(삭제된 제품)'))),color:esc(sizeKo(c?cPName(c):'-')),spec:'-',unit:'개',qty:String(o.qty),due:o.due?kdate(o.due):'',note:esc(o.note||'')}});
   /* 제품별 1개 제작 시 투입량 — 제품·배합 데이터에서 자동 작성 */
   const seenM=new Set();const matRows=[];
   pend.forEach(o=>{const key=o.pid+'|'+o.cid;if(seenM.has(key))return;seenM.add(key);
