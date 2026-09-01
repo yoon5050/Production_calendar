@@ -385,8 +385,8 @@ window.FIREBASE_CONFIG={
 
   <section class="tab" id="tab-pstock">
     <div class="card">
-      <h2 class="sec">제품 재고 — 등급별 입고 검수</h2>
-      <p class="hint"><b>발주수량</b>은 <b>생산 발주 확정</b>에서 자동으로 넘어옵니다(로컬 이력 기준). 아래에서 등급(A/B+/B/C)별 검수 수량을 입력해 <b>등록</b>하면 <b>공유 재고 원장</b>의 정상/불량 창고에 바로 반영되고, md도 같은 원장을 실시간으로 봅니다(승인 단계 없음). md에서 주문이 배송완료되면 정상 재고가 자동 차감됩니다. <button class="btn sm" id="pstockReload" style="margin-left:6px">↻ 새로고침</button> <button class="btn sm ghost" id="pstockClear">🗑 로컬 검수로그 비우기</button></p>
+      <h2 class="sec">제품 재고 — 입고 · 검수 · 창고 이동</h2>
+      <p class="hint"><b>발주수량</b>은 <b>생산 발주 확정</b>에서 자동으로 넘어옵니다(로컬 이력 기준). 검수 수량을 <b>입고(미검수)</b>·창고A·창고B·창고C로 나눠 등록하면 <b>공유 재고 원장</b>과 md에 바로 반영됩니다. 기존 B+/B 데이터는 창고B로 함께 관리하며, 창고C는 기존 불량 창고 데이터와 연결됩니다. <button class="btn sm" id="pstockReload" style="margin-left:6px">↻ 새로고침</button> <button class="btn sm ghost" id="pstockClear">🗑 로컬 검수로그 비우기</button></p>
       <div id="pstockBody"></div>
     </div>
   </section>
@@ -2377,7 +2377,8 @@ initFB();
   }
   function bsku(s){ s=s||''; return /^G/.test(s)?('B'+s.slice(1)):s; }
   var WH5=['입고','창고A','창고B+','창고B','불량','출고준비'];
-  function WH5opts(){ return WH5.map(function(w){return '<option>'+w+'</option>';}).join(''); }
+  function whLabel(w){ return w==='입고'?'입고(미검수)':w==='불량'?'창고C':w==='출고준비'?'출고준비':w; }
+  function WH5opts(){ return WH5.map(function(w){return '<option value="'+w+'">'+whLabel(w)+'</option>';}).join(''); }
   function whBucket(w,g){
     if(w==='입고')return '입고'; if(w==='불량')return '불량';
     if(w==='출고준비'||w==='출고대기')return '출고준비';
@@ -2403,7 +2404,7 @@ initFB();
       var dl=document.getElementById('psMoveSkus'); if(dl)dl.innerHTML=order.map(function(k){return '<option value="'+esc(k)+'">'+esc(nameOf(k))+'</option>';}).join('');
       if(!order.length){ box.innerHTML='<p class="hint">공유 원장에 재고가 없습니다. 아래에서 창고별 수량을 등록하면 창고A/창고B/불량에 쌓이고, md 출고 시 출고준비에서 자동 차감됩니다.</p>'; return; }
       var tot={}; WH5.forEach(function(w){tot[w]=0;});
-      var hh='<div style="overflow-x:auto"><table class="t" style="width:100%;border-collapse:collapse"><tr><th>SKU(바디)</th><th>제품·색상</th>'+WH5.map(function(w){return '<th class="r">'+w+'</th>';}).join('')+'<th class="r">합계</th></tr>';
+      var hh='<div style="overflow-x:auto"><table class="t" style="width:100%;border-collapse:collapse"><tr><th>SKU(바디)</th><th>제품·색상</th>'+WH5.map(function(w){return '<th class="r">'+whLabel(w)+'</th>';}).join('')+'<th class="r">전체재고</th></tr>';
       order.forEach(function(k){ var b=by[k]; var sum=0; WH5.forEach(function(w){sum+=b[w];tot[w]+=b[w];});
         hh+='<tr><td class="mono" style="font-size:11px">'+esc(k)+'</td><td style="font-size:12px">'+esc(nameOf(k))+'</td>'+WH5.map(function(w){var st=(w==='불량')?' style="color:#dc2626"':'';return '<td class="r"'+st+'>'+n(b[w])+'</td>';}).join('')+'<td class="r"><b>'+n(sum)+'</b></td></tr>'; });
       var sumAll=0; WH5.forEach(function(w){sumAll+=tot[w];});
@@ -2461,17 +2462,17 @@ initFB();
     var box=document.getElementById('pstockBody'); if(!box)return;
     var html='';
     /* 상단: 현재 재고 — 공유 재고 원장(창고 4분류) */
-    html+='<div style="font-weight:800;margin:2px 0 6px;font-size:14px">📦 현재 재고 · 창고별 <span class="hint">(입고·창고A·창고B·불량·출고준비 · md와 공유하는 원장 · 0이면 숨김)</span><button class="btn sm" onclick="prodStockLoad()" style="float:right">↻ 새로고침</button></div>';
+    html+='<div style="font-weight:800;margin:2px 0 6px;font-size:14px">📦 현재 재고 · 창고별 <span class="hint">(입고(미검수)·창고A·창고B·창고C·출고준비 · md와 공유하는 원장 · 0이면 숨김)</span><button class="btn sm" onclick="prodStockLoad()" style="float:right">↻ 새로고침</button></div>';
     html+='<div id="psLedgerBox"><p class="hint">원장 불러오는 중…</p></div>';
     html+='<div class="hint" style="margin-top:4px">md에서 주문이 배송완료되면 이 원장의 <b>출고준비</b> 재고가 자동 차감됩니다. (승인 단계 없음)</div>';
     html+='<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:12px">';
     html+='<div style="flex:1;min-width:300px;padding:10px 12px;background:#f6f8ff;border-radius:8px">';
-    html+='<div style="font-weight:800;font-size:13px;margin-bottom:6px">🔁 창고 이동 <span class="hint">(입고→창고A/B · 창고A→출고준비)</span></div>';
+    html+='<div style="font-weight:800;font-size:13px;margin-bottom:6px">🔁 창고 이동 <span class="hint">(입고(미검수)→창고A/B/C · 창고A/B/C→출고준비)</span></div>';
     html+='<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">';
     html+='<input id="pmSku" list="psMoveSkus" placeholder="SKU(바디)" style="width:150px"><datalist id="psMoveSkus"></datalist>';
-    html+='<select id="pmFrom"><option>입고</option><option>창고A</option><option>창고B+</option><option>창고B</option><option>불량</option><option>출고준비</option></select>';
+    html+='<select id="pmFrom"><option value="입고">입고(미검수)</option><option>창고A</option><option>창고B+</option><option>창고B</option><option value="불량">창고C</option><option>출고준비</option></select>';
     html+='<span>→</span>';
-    html+='<select id="pmTo"><option>출고준비</option><option>창고A</option><option>창고B+</option><option>창고B</option><option>불량</option><option>입고</option></select>';
+    html+='<select id="pmTo"><option>출고준비</option><option>창고A</option><option>창고B+</option><option>창고B</option><option value="불량">창고C</option><option value="입고">입고(미검수)</option></select>';
     html+='<input id="pmQty" type="number" min="1" placeholder="수량" style="width:70px">';
     html+='<button class="btn pri sm" onclick="prodStockMove()">이동</button>';
     html+='</div></div>';
@@ -2505,7 +2506,7 @@ initFB();
         html+='<div style="background:var(--blue-l);border-radius:8px;padding:10px 12px">';
         html+='<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-bottom:8px"><b style="font-size:15px">'+esc(colorName(o.pid,o.cid)||'')+'</b> <span style="color:var(--sub)">'+esc(prodName(o.pid)||'')+'</span> · 발주수량 <b>'+n(o.qty)+'</b>개 · 검수완료 <b>'+done+'</b> · 잔량 <b style="color:'+(rem<=0?'var(--pos,#1a9d55)':'var(--blue)')+'">'+rem+'</b> · 예정일 '+(due?esc(due):'-')+'</div>';
         html+='<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">';
-        [['입고','psgIn'],['창고A','psgA'],['창고B+','psgBp'],['창고B','psgB'],['불량','psgC'],['출고준비','psgOut']].forEach(function(k){ html+='<label style="font-size:12px">'+k[0]+'<br><input id="'+k[1]+'" type="number" min="0" placeholder="0" style="width:56px;text-align:right" oninput="prodStockGsum()"></label>'; });
+        [['입고(미검수)','psgIn'],['창고A','psgA'],['창고B+','psgBp'],['창고B','psgB'],['창고C','psgC'],['출고준비','psgOut']].forEach(function(k){ html+='<label style="font-size:12px">'+k[0]+'<br><input id="'+k[1]+'" type="number" min="0" placeholder="0" style="width:56px;text-align:right" oninput="prodStockGsum()"></label>'; });
         html+='<div style="font-size:13px">검수합계 <b id="psgTot" style="font-size:16px">0</b>개</div>';
         html+='<button class="btn pri" onclick="prodStockRegister()">✅ 창고별 등록 · 원장 반영</button>';
         html+='</div><div class="hint" style="margin-top:6px">등록하면 위 <b>현재 재고</b>의 해당 창고에 더해지고, md 바디 재고에도 그대로 반영됩니다.</div>';
@@ -2515,7 +2516,7 @@ initFB();
     /* 제품 추가 입고 */
     html+='<hr style="margin:16px 0;border:none;border-top:1px solid var(--line)">';
     html+='<div style="font-weight:800;margin:2px 0 6px;font-size:14px">＋ 제품 추가 입고 <span class="hint">(발주와 별개로 제품·색상별로 창고에 직접 등록)</span></div>';
-    html+='<div style="overflow-x:auto"><table class="t" style="width:100%;border-collapse:collapse"><tr><th>소분류 (색상)</th><th>입고예정일</th><th class="r">입고</th><th class="r">창고A</th><th class="r">창고B+</th><th class="r">창고B</th><th class="r">불량</th><th class="r">출고준비</th><th></th></tr>'
+    html+='<div style="overflow-x:auto"><table class="t" style="width:100%;border-collapse:collapse"><tr><th>소분류 (색상)</th><th>입고예정일</th><th class="r">입고(미검수)</th><th class="r">창고A</th><th class="r">창고B+</th><th class="r">창고B</th><th class="r">창고C</th><th class="r">출고준비</th><th></th></tr>'
       +'<tr><td><select id="paProd" onchange="prodStockPaSync()" style="max-width:120px">'+(S.products||[]).map(function(p){return '<option value="'+p.id+'">'+esc(p.name)+'</option>';}).join('')+'</select> <select id="paColor" style="max-width:120px"></select></td>'
       +'<td><input id="paDate" type="date" value="'+(window.today||'')+'" style="width:130px"></td>'
       +'<td class="r"><input id="paIn" type="number" min="0" placeholder="0" style="width:46px;text-align:right"></td>'
